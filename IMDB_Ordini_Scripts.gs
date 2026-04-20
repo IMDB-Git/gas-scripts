@@ -4704,7 +4704,7 @@ function verificaPagamentiOrdiniSelezionati()
   var headerRowOrdini = 33;
   var ui = SpreadsheetApp.getUi();
 
-  var headersOrdini = getHeaderMap_(sheetOrdini, headerRowOrdini);
+  var headersOrdini = IMDBCommonLibs.getHeaderMap(sheetOrdini, headerRowOrdini);
 
   var requiredOrderHeaders = [
     "Mail",
@@ -4716,9 +4716,9 @@ function verificaPagamentiOrdiniSelezionati()
     "Totale"
   ];
 
-  ensureHeadersExist_(sheetOrdini, headersOrdini, requiredOrderHeaders, "foglio ordini");
+  IMDBCommonLibs.ensureHeadersExist(sheetOrdini, headersOrdini, requiredOrderHeaders, "foglio ordini");
 
-  var righeSelezionate = getSelectedVisibleRows_(sheetOrdini, headerRowOrdini);
+  var righeSelezionate = IMDBCommonLibs.getSelectedVisibleRows(sheetOrdini, headerRowOrdini);
 
   if (righeSelezionate.length === 0)
   {
@@ -4737,19 +4737,19 @@ function verificaPagamentiOrdiniSelezionati()
     throw new Error("Uno o più fogli movimenti non esistono: Banca 2026, Stripe 2026, PayPal 2026.");
   }
 
-  var bancaHeaders = getOrCreateHeaderMap_(
+  var bancaHeaders = IMDBCommonLibs.getOrCreateHeaderMap(
     bancaSheet,
     1,
     ["Descrizione", "Importo", "Data Val.", "Fattura", "Spedizione", "Campagna"]
   );
 
-  var stripeHeaders = getOrCreateHeaderMap_(
+  var stripeHeaders = IMDBCommonLibs.getOrCreateHeaderMap(
     stripeSheet,
     1,
     ["Customer Email", "Amount", "Created date (UTC)", "Fattura", "Spedizione", "Campagna"]
   );
 
-  var paypalHeaders = getOrCreateHeaderMap_(
+  var paypalHeaders = IMDBCommonLibs.getOrCreateHeaderMap(
     paypalSheet,
     1,
     ["Customer From Email Address", "Gross", "Date", "Fattura", "Spedizione", "Campagna"]
@@ -4776,7 +4776,7 @@ function verificaPagamentiOrdiniSelezionati()
       var statoPagamento = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Stato pagamento"]).getDisplayValue());
       var fatturaOrdine = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Fattura"]).getDisplayValue());
       var totaleDisplay = sheetOrdini.getRange(row, headersOrdini["Totale"]).getDisplayValue();
-      var totaleOrdine = normalizeAmount_(sheetOrdini.getRange(row, headersOrdini["Totale"]).getValue());
+      var totaleOrdine = IMDBCommonLibs.normalizeAmount(sheetOrdini.getRange(row, headersOrdini["Totale"]).getValue());
 
       var spedizioneMatch = note.match(/(?:Preparato|Spedito):\s*([A-Za-z0-9._\-\/]+)/i);
 
@@ -4785,7 +4785,7 @@ function verificaPagamentiOrdiniSelezionati()
         risultati.saltati.push({
           row: row,
           motivo: "Note senza 'Preparato:' o 'Spedito:' con codice ordine",
-          dettaglio: buildOrderDetail_(null, cognome, nome, email, totaleDisplay)
+          dettaglio: IMDBCommonLibs.buildOrderDetail(null, cognome, nome, email, totaleDisplay)
         });
         return;
       }
@@ -4797,7 +4797,7 @@ function verificaPagamentiOrdiniSelezionati()
         risultati.saltati.push({
           row: row,
           motivo: "Stato pagamento vuoto",
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay)
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay)
         });
         return;
       }
@@ -4806,19 +4806,19 @@ function verificaPagamentiOrdiniSelezionati()
       {
         risultati.errori.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           motivo: "Totale ordine non valido"
         });
         return;
       }
 
-      var paymentInfo = parseStatoPagamento_(statoPagamento);
+      var paymentInfo = IMDBCommonLibs.parseStatoPagamento(statoPagamento);
 
       if (!paymentInfo.data)
       {
         risultati.errori.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           motivo: "Data non riconosciuta in Stato pagamento"
         });
         return;
@@ -4828,7 +4828,7 @@ function verificaPagamentiOrdiniSelezionati()
 
       if (paymentInfo.provider === "BANCA")
       {
-        esitoRicerca = findPaymentMatchInBanca_(
+        esitoRicerca = IMDBCommonLibs.findPaymentMatchInBanca(
           bancaSheet,
           bancaHeaders,
           totaleOrdine,
@@ -4840,7 +4840,7 @@ function verificaPagamentiOrdiniSelezionati()
       }
       else if (paymentInfo.provider === "STRIPE")
       {
-        esitoRicerca = findPaymentMatchInStripe_(
+        esitoRicerca = IMDBCommonLibs.findPaymentMatchInStripe(
           stripeSheet,
           stripeHeaders,
           totaleOrdine,
@@ -4852,7 +4852,7 @@ function verificaPagamentiOrdiniSelezionati()
       }
       else if (paymentInfo.provider === "PAYPAL")
       {
-        esitoRicerca = findPaymentMatchInPaypal_(
+        esitoRicerca = IMDBCommonLibs.findPaymentMatchInPaypal(
           paypalSheet,
           paypalHeaders,
           totaleOrdine,
@@ -4866,7 +4866,7 @@ function verificaPagamentiOrdiniSelezionati()
       {
         risultati.errori.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           motivo: "Provider pagamento non riconosciuto"
         });
         return;
@@ -4876,7 +4876,7 @@ function verificaPagamentiOrdiniSelezionati()
       {
         risultati.ambigui.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           foglio: esitoRicerca.sheet.getName(),
           righe: esitoRicerca.ambigui
         });
@@ -4886,7 +4886,7 @@ function verificaPagamentiOrdiniSelezionati()
       {
         risultati.nonTrovati.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           motivo: "Nessun movimento compatibile trovato"
         });
         return;
@@ -4896,7 +4896,7 @@ function verificaPagamentiOrdiniSelezionati()
       {
         risultati.errori.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           motivo: "Fattura già presente nel movimento e diversa da quella ordine",
           foglio: esitoRicerca.sheet.getName(),
           movimentoRow: esitoRicerca.match.row,
@@ -4906,7 +4906,7 @@ function verificaPagamentiOrdiniSelezionati()
         return;
       }
 
-      writeMovimentoResult_(
+      IMDBCommonLibs.writeMovimentoResult(
         esitoRicerca.sheet,
         esitoRicerca.headers,
         esitoRicerca.match.row,
@@ -4920,7 +4920,7 @@ function verificaPagamentiOrdiniSelezionati()
       {
         risultati.esatti.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           foglio: esitoRicerca.sheet.getName(),
           movimentoRow: esitoRicerca.match.row
         });
@@ -4929,7 +4929,7 @@ function verificaPagamentiOrdiniSelezionati()
       {
         risultati.parziali.push({
           row: row,
-          dettaglio: buildOrderDetail_(codiceSpedizione, cognome, nome, email, totaleDisplay),
+          dettaglio: IMDBCommonLibs.buildOrderDetail(codiceSpedizione, cognome, nome, email, totaleDisplay),
           foglio: esitoRicerca.sheet.getName(),
           movimentoRow: esitoRicerca.match.row,
           motivo: esitoRicerca.match.partialReason || "Corrispondenza non piena",
@@ -4940,748 +4940,11 @@ function verificaPagamentiOrdiniSelezionati()
     }
   );
 
-  var report = buildFinalReport_(sheetOrdini.getName(), risultati);
+  var report = IMDBCommonLibs.buildFinalReport(sheetOrdini.getName(), risultati);
 
   Logger.log(report);
   ui.alert(report);
 }
-
-function getSelectedVisibleRows_(sheet, headerRow)
-{
-  var activeRangeList = sheet.getActiveRangeList();
-  var ranges = [];
-
-  if (activeRangeList)
-  {
-    ranges = activeRangeList.getRanges();
-  }
-  else
-  {
-    var activeRange = sheet.getActiveRange();
-
-    if (activeRange)
-    {
-      ranges = [activeRange];
-    }
-  }
-
-  var rowsMap = {};
-
-  ranges.forEach(
-    function(range)
-    {
-      var startRow = range.getRow();
-      var endRow = startRow + range.getNumRows() - 1;
-
-      for (var r = startRow; r <= endRow; r++)
-      {
-        if (r <= headerRow)
-        {
-          continue;
-        }
-
-        if (sheet.isRowHiddenByFilter(r))
-        {
-          continue;
-        }
-
-        if (sheet.isRowHiddenByUser(r))
-        {
-          continue;
-        }
-
-        rowsMap[r] = true;
-      }
-    }
-  );
-
-  return Object.keys(rowsMap)
-    .map(
-      function(r)
-      {
-        return parseInt(r, 10);
-      }
-    )
-    .sort(
-      function(a, b)
-      {
-        return a - b;
-      }
-    );
-}
-
-function getHeaderMap_(sheet, headerRow)
-{
-  var lastCol = sheet.getLastColumn();
-  var headers = sheet.getRange(headerRow, 1, 1, lastCol).getDisplayValues()[0];
-  var map = {};
-
-  for (var c = 0; c < headers.length; c++)
-  {
-    var h = normalizeHeader_(headers[c]);
-
-    if (h)
-    {
-      map[h] = c + 1;
-    }
-  }
-
-  return map;
-}
-
-function getOrCreateHeaderMap_(sheet, headerRow, requiredHeaders)
-{
-  var lastCol = Math.max(sheet.getLastColumn(), 1);
-  var headers = sheet.getRange(headerRow, 1, 1, lastCol).getDisplayValues()[0];
-  var map = {};
-
-  for (var c = 0; c < headers.length; c++)
-  {
-    var h = normalizeHeader_(headers[c]);
-
-    if (h)
-    {
-      map[h] = c + 1;
-    }
-  }
-
-  requiredHeaders.forEach(
-    function(headerName)
-    {
-      if (!map[headerName])
-      {
-        lastCol++;
-        sheet.getRange(headerRow, lastCol).setValue(headerName);
-        map[headerName] = lastCol;
-      }
-    }
-  );
-
-  return map;
-}
-
-function ensureHeadersExist_(sheet, headerMap, requiredHeaders, sheetLabel)
-{
-  var missing = requiredHeaders.filter(
-    function(h)
-    {
-      return !headerMap[h];
-    }
-  );
-
-  if (missing.length > 0)
-  {
-    throw new Error("Nel " + sheetLabel + " mancano queste colonne alla riga intestazioni: " + missing.join(", "));
-  }
-}
-
-function normalizeHeader_(value)
-{
-  return String(value || "").trim();
-}
-
-
-function normalizeAmount_(value)
-{
-  if (value === null || value === undefined || value === "")
-  {
-    return null;
-  }
-
-  if (typeof value === "number")
-  {
-    return round2_(value);
-  }
-
-  var s = String(value).trim();
-  s = s.replace(/\s+/g, "");
-  s = s.replace(/€/g, "");
-  s = s.replace(/\./g, "");
-  s = s.replace(/,/g, ".");
-
-  var n = parseFloat(s);
-
-  if (isNaN(n))
-  {
-    return null;
-  }
-
-  return round2_(n);
-}
-
-function round2_(n)
-{
-  return Math.round(n * 100) / 100;
-}
-
-function parseStatoPagamento_(statoPagamento)
-{
-  var s = String(statoPagamento || "").trim();
-  var provider = "BANCA";
-
-  if (/stripe/i.test(s))
-  {
-    provider = "STRIPE";
-  }
-  else if (/paypal/i.test(s))
-  {
-    provider = "PAYPAL";
-  }
-
-  var data = extractDateFromText_(s);
-
-  return {
-    raw: s,
-    provider: provider,
-    data: data
-  };
-}
-
-function extractDateFromText_(text)
-{
-  var s = String(text || "").trim();
-
-  var m = s.match(/(\d{1,2}[\/\-.]\d{1,2}[\/\-.]\d{2,4})/);
-
-  if (!m)
-  {
-    return null;
-  }
-
-  return normalizeDateString_(m[1]);
-}
-
-function normalizeDateString_(value)
-{
-  if (value === null || value === undefined || value === "")
-  {
-    return null;
-  }
-
-  if (Object.prototype.toString.call(value) === "[object Date]" && !isNaN(value.getTime()))
-  {
-    return Utilities.formatDate(value, Session.getScriptTimeZone(), "yyyy-MM-dd");
-  }
-
-  var s = String(value).trim();
-
-  var dmy = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
-
-  if (dmy)
-  {
-    var day = parseInt(dmy[1], 10);
-    var month = parseInt(dmy[2], 10);
-    var year = parseInt(dmy[3], 10);
-
-    if (year < 100)
-    {
-      year += 2000;
-    }
-
-    return pad4_(year) + "-" + pad2_(month) + "-" + pad2_(day);
-  }
-
-  var iso = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
-
-  if (iso)
-  {
-    return pad4_(parseInt(iso[1], 10)) + "-" + pad2_(parseInt(iso[2], 10)) + "-" + pad2_(parseInt(iso[3], 10));
-  }
-
-  var d = new Date(s);
-
-  if (!isNaN(d.getTime()))
-  {
-    return Utilities.formatDate(d, Session.getScriptTimeZone(), "yyyy-MM-dd");
-  }
-
-  return null;
-}
-
-function pad2_(n)
-{
-  return ("0" + n).slice(-2);
-}
-
-function pad4_(n)
-{
-  var s = String(n);
-
-  while (s.length < 4)
-  {
-    s = "0" + s;
-  }
-
-  return s;
-}
-
-function normalizeComparableText_(value)
-{
-  return String(value || "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function normalizeFatturaForCompare_(value)
-{
-  return String(value || "")
-    .replace(/\?/g, "")
-    .trim()
-    .toLowerCase();
-}
-
-function containsText_(haystack, needle)
-{
-  if (!needle)
-  {
-    return false;
-  }
-
-  return normalizeComparableText_(haystack).indexOf(normalizeComparableText_(needle)) !== -1;
-}
-
-function buildOrderDetail_(codiceSpedizione, cognome, nome, email, importo)
-{
-  return (codiceSpedizione || "-") +
-    ": " +
-    (cognome || "") +
-    " " +
-    (nome || "") +
-    " (" +
-    (email || "") +
-    ") Importo:" +
-    (importo || "");
-}
-
-function findPaymentMatchInBanca_(sheet, headers, totaleOrdine, email, cognome, dataOrdine, fatturaOrdine)
-{
-  return findGenericPaymentMatch_(
-    {
-      sheet: sheet,
-      headers: headers,
-      amountHeader: "Importo",
-      dateHeader: "Data Val.",
-      customerHeader: "Descrizione",
-      customerType: "DESCRIZIONE",
-      totaleOrdine: totaleOrdine,
-      email: email,
-      cognome: cognome,
-      dataOrdine: dataOrdine,
-      fatturaOrdine: fatturaOrdine
-    }
-  );
-}
-
-function findPaymentMatchInStripe_(sheet, headers, totaleOrdine, email, cognome, dataOrdine, fatturaOrdine)
-{
-  return findGenericPaymentMatch_(
-    {
-      sheet: sheet,
-      headers: headers,
-      amountHeader: "Amount",
-      dateHeader: "Created date (UTC)",
-      customerHeader: "Customer Email",
-      customerType: "EMAIL",
-      totaleOrdine: totaleOrdine,
-      email: email,
-      cognome: cognome,
-      dataOrdine: dataOrdine,
-      fatturaOrdine: fatturaOrdine
-    }
-  );
-}
-
-function findPaymentMatchInPaypal_(sheet, headers, totaleOrdine, email, cognome, dataOrdine, fatturaOrdine)
-{
-  return findGenericPaymentMatch_(
-    {
-      sheet: sheet,
-      headers: headers,
-      amountHeader: "Gross",
-      dateHeader: "Date",
-      customerHeader: "Customer From Email Address",
-      customerType: "EMAIL",
-      totaleOrdine: totaleOrdine,
-      email: email,
-      cognome: cognome,
-      dataOrdine: dataOrdine,
-      fatturaOrdine: fatturaOrdine
-    }
-  );
-}
-
-function findGenericPaymentMatch_(cfg)
-{
-  var sheet = cfg.sheet;
-  var headers = cfg.headers;
-  var lastRow = sheet.getLastRow();
-
-  if (lastRow < 2)
-  {
-    return {
-      sheet: sheet,
-      headers: headers,
-      match: null,
-      fatturaConflict: false,
-      existingFattura: "",
-      ambigui: []
-    };
-  }
-
-  var lastCol = sheet.getLastColumn();
-  var data = sheet.getRange(2, 1, lastRow - 1, lastCol).getDisplayValues();
-  var candidates = [];
-
-  data.forEach(
-    function(row, idx)
-    {
-      var rowNumber = idx + 2;
-      var importo = normalizeAmount_(row[headers[cfg.amountHeader] - 1]);
-
-      if (importo === null)
-      {
-        return;
-      }
-
-      if (round2_(importo) !== round2_(cfg.totaleOrdine))
-      {
-        return;
-      }
-
-      var customerField = IMDBCommonLibs.normalizeString(row[headers[cfg.customerHeader] - 1]);
-      var dataMovimento = normalizeDateString_(row[headers[cfg.dateHeader] - 1]);
-
-      var emailMatch = false;
-      var cognomeMatch = false;
-
-      if (cfg.customerType === "DESCRIZIONE")
-      {
-        emailMatch = cfg.email ? containsText_(customerField, cfg.email) : false;
-        cognomeMatch = cfg.cognome ? containsText_(customerField, cfg.cognome) : false;
-      }
-      else if (cfg.customerType === "EMAIL")
-      {
-        emailMatch = cfg.email ? normalizeComparableText_(customerField) === normalizeComparableText_(cfg.email) : false;
-        cognomeMatch = cfg.cognome ? containsText_(customerField, cfg.cognome) : false;
-      }
-
-      var customerMatch = emailMatch || cognomeMatch;
-      var dateMatch = cfg.dataOrdine && dataMovimento ? (cfg.dataOrdine === dataMovimento) : false;
-
-      if (!customerMatch)
-      {
-        return;
-      }
-
-      var tipoMatch = "ESATTO";
-      var partialReason = "";
-
-      if (!dateMatch)
-      {
-        tipoMatch = "PARZIALE";
-        partialReason = "Importo e cliente coerenti, data diversa";
-      }
-
-      var existingFattura = IMDBCommonLibs.normalizeString(row[headers["Fattura"] - 1]);
-      var fatturaConflict = false;
-
-      if (existingFattura)
-      {
-        if (normalizeFatturaForCompare_(existingFattura) !== normalizeFatturaForCompare_(cfg.fatturaOrdine))
-        {
-          fatturaConflict = true;
-        }
-      }
-
-      var existingSpedizione = IMDBCommonLibs.normalizeString(row[headers["Spedizione"] - 1]);
-      var score = 0;
-
-      if (emailMatch)
-      {
-        score += 100;
-      }
-
-      if (cognomeMatch)
-      {
-        score += 10;
-      }
-
-      if (dateMatch)
-      {
-        score += 1000;
-      }
-
-      if (!existingFattura && !existingSpedizione)
-      {
-        score += 5;
-      }
-
-      candidates.push({
-        row: rowNumber,
-        tipoMatch: tipoMatch,
-        partialReason: partialReason,
-        emailMatch: emailMatch,
-        cognomeMatch: cognomeMatch,
-        dateMatch: dateMatch,
-        customerField: customerField,
-        dataMovimento: dataMovimento,
-        fatturaConflict: fatturaConflict,
-        existingFattura: existingFattura,
-        existingSpedizione: existingSpedizione,
-        score: score
-      });
-    }
-  );
-
-  if (candidates.length === 0)
-  {
-    return {
-      sheet: sheet,
-      headers: headers,
-      match: null,
-      fatturaConflict: false,
-      existingFattura: "",
-      ambigui: []
-    };
-  }
-
-  var indistinguibili = groupAmbiguousCandidates_(candidates);
-
-  candidates.sort(
-    function(a, b)
-    {
-      if (b.score !== a.score)
-      {
-        return b.score - a.score;
-      }
-
-      if (a.fatturaConflict !== b.fatturaConflict)
-      {
-        return a.fatturaConflict ? 1 : -1;
-      }
-
-      return a.row - b.row;
-    }
-  );
-
-  var best = candidates[0];
-
-  return {
-    sheet: sheet,
-    headers: headers,
-    match: best,
-    fatturaConflict: best.fatturaConflict,
-    existingFattura: best.existingFattura,
-    ambigui: indistinguibili
-  };
-}
-
-function groupAmbiguousCandidates_(candidates)
-{
-  var groups = {};
-
-  candidates.forEach(
-    function(c)
-    {
-      var key = [
-        c.dataMovimento || "",
-        c.emailMatch ? "EM1" : "EM0",
-        c.cognomeMatch ? "CM1" : "CM0",
-        c.tipoMatch,
-        c.score
-      ].join("|");
-
-      if (!groups[key])
-      {
-        groups[key] = [];
-      }
-
-      groups[key].push(c.row);
-    }
-  );
-
-  var ambigui = [];
-
-  Object.keys(groups).forEach(
-    function(key)
-    {
-      if (groups[key].length > 1)
-      {
-        ambigui = ambigui.concat(groups[key]);
-      }
-    }
-  );
-
-  ambigui.sort(
-    function(a, b)
-    {
-      return a - b;
-    }
-  );
-
-  return ambigui;
-}
-
-function writeMovimentoResult_(sheet, headers, row, fattura, codiceSpedizione, campagna, isParziale)
-{
-  var fatturaRange = sheet.getRange(row, headers["Fattura"]);
-  var spedizioneRange = sheet.getRange(row, headers["Spedizione"]);
-  var campagnaRange = sheet.getRange(row, headers["Campagna"]);
-
-  spedizioneRange.setValue(codiceSpedizione);
-  campagnaRange.setValue(campagna);
-
-  if (isParziale)
-  {
-    var testo = (fattura || "") + "?";
-    var normalStyle = SpreadsheetApp.newTextStyle()
-      .setBold(false)
-      .build();
-    var boldStyle = SpreadsheetApp.newTextStyle()
-      .setBold(true)
-      .build();
-
-    var richText = SpreadsheetApp.newRichTextValue()
-      .setText(testo)
-      .setTextStyle(0, testo.length - 1, normalStyle)
-      .setTextStyle(testo.length - 1, testo.length, boldStyle)
-      .build();
-
-    fatturaRange.setRichTextValue(richText);
-    fatturaRange.setBackground("#ffcccc");
-  }
-  else
-  {
-    fatturaRange.setValue(fattura);
-    fatturaRange.setBackground(null);
-    fatturaRange.setFontWeight("normal");
-  }
-}
-
-function buildFinalReport_(nomeFoglioOrdini, risultati)
-{
-  var lines = [];
-
-  lines.push("Verifica pagamenti - Campagna: " + nomeFoglioOrdini);
-  lines.push("");
-
-  lines.push("Corrispondenze esatte: " + risultati.esatti.length);
-
-  if (risultati.esatti.length > 0)
-  {
-    risultati.esatti.forEach(
-      function(x)
-      {
-        lines.push("- " + x.dettaglio + " [" + x.foglio + " riga " + x.movimentoRow + "]");
-      }
-    );
-  }
-
-  lines.push("");
-  lines.push("Corrispondenze parziali: " + risultati.parziali.length);
-
-  if (risultati.parziali.length > 0)
-  {
-    risultati.parziali.forEach(
-      function(x)
-      {
-        var extraDate = "";
-
-        if (x.dataOrdine || x.dataMovimento)
-        {
-          extraDate =
-            " - data ordine: " + (x.dataOrdine || "(vuota)") +
-            ", data movimento: " + (x.dataMovimento || "(vuota)");
-        }
-
-        lines.push(
-          "- " + x.dettaglio +
-          " [" + x.foglio + " riga " + x.movimentoRow + "] - " +
-          x.motivo +
-          extraDate
-        );
-      }
-    );
-  }
-
-  lines.push("");
-  lines.push("Non trovati: " + risultati.nonTrovati.length);
-
-  if (risultati.nonTrovati.length > 0)
-  {
-    risultati.nonTrovati.forEach(
-      function(x)
-      {
-        lines.push("- " + x.dettaglio + (x.motivo ? " [" + x.motivo + "]" : ""));
-      }
-    );
-  }
-
-  lines.push("");
-  lines.push("Ambigui: " + risultati.ambigui.length);
-
-  if (risultati.ambigui.length > 0)
-  {
-    risultati.ambigui.forEach(
-      function(x)
-      {
-        lines.push(
-          "- " + x.dettaglio +
-          " [" + x.foglio + " righe " + x.righe.join(", ") + "] - movimenti indistinguibili"
-        );
-      }
-    );
-  }
-
-  lines.push("");
-  lines.push("Errori: " + risultati.errori.length);
-
-  if (risultati.errori.length > 0)
-  {
-    risultati.errori.forEach(
-      function(x)
-      {
-        var extra = "";
-
-        if (x.foglio && x.movimentoRow)
-        {
-          extra += " [" + x.foglio + " riga " + x.movimentoRow + "]";
-        }
-
-        if (x.motivo === "Fattura già presente nel movimento e diversa da quella ordine")
-        {
-          extra +=
-            " fattura ordine: " + (x.fatturaOrdine || "(vuota)") +
-            ", fattura movimento: " + (x.fatturaMovimento || "(vuota)");
-        }
-        else if (x.fatturaMovimento)
-        {
-          extra += " fattura movimento: " + x.fatturaMovimento;
-        }
-
-        lines.push("- " + x.dettaglio + extra + " [" + x.motivo + "]");
-      }
-    );
-  }
-
-  lines.push("");
-  lines.push("Saltati: " + risultati.saltati.length);
-
-  if (risultati.saltati.length > 0)
-  {
-    risultati.saltati.forEach(
-      function(x)
-      {
-        lines.push("- riga " + x.row + ": " + x.dettaglio + " [" + x.motivo + "]");
-      }
-    );
-  }
-
-  return lines.join("\n");
-}
-
-
 
 function importBankMovements()
 {
@@ -5722,23 +4985,23 @@ function importaCsvBancaDaTesto_(csvText)
 
   var headerRow = 1;
   var requiredHeaders = ["Valuta", "Descrizione", "Importo"];
-  var headerMap = getOrCreateHeaderMap_(sheet, headerRow, requiredHeaders);
+  var headerMap = IMDBCommonLibs.getOrCreateHeaderMap(sheet, headerRow, requiredHeaders);
 
-  var rows = parseBankCsvSemicolon_(csvText);
+  var rows = IMDBCommonLibs.parseBankCsvSemicolon(csvText);
 
   if (rows.length === 0)
   {
     return "Nessun movimento trovato nel CSV.";
   }
 
-  var existingKeys = getExistingDescrizioneImportoKeys_(sheet, headerMap, headerRow);
+  var existingKeys = IMDBCommonLibs.getExistingDescrizioneImportoKeys(sheet, headerMap, headerRow);
   var newRowsData = [];
   var skipped = 0;
 
   rows.forEach(
     function(row)
     {
-      var key = buildDescrizioneImportoKey_(row.description, row.amount);
+      var key = IMDBCommonLibs.buildDescrizioneImportoKey(row.description, row.amount);
 
       if (existingKeys[key])
       {
@@ -5799,274 +5062,4 @@ function importaCsvBancaDaTesto_(csvText)
 
   return report;
 }
-
-function parseBankCsvSemicolon_(csvText)
-{
-  var normalized = String(csvText || "")
-    .replace(/^\uFEFF/, "")
-    .replace(/\r\n/g, "\n")
-    .replace(/\r/g, "\n")
-    .trim();
-
-  if (!normalized)
-  {
-    return [];
-  }
-
-  var lines = normalized.split("\n");
-
-  if (lines.length < 2)
-  {
-    return [];
-  }
-
-  var header = splitSemicolonCsvLine_(lines[0]);
-  var headerMap = {};
-
-  for (var i = 0; i < header.length; i++)
-  {
-    headerMap[String(header[i] || "").trim()] = i;
-  }
-
-  var required = ["Txn. Date", "Value Date", "Description", "Amount"];
-
-  required.forEach(
-    function(h)
-    {
-      if (typeof headerMap[h] === "undefined")
-      {
-        throw new Error("Colonna mancante nel CSV: " + h);
-      }
-    }
-  );
-
-  var rows = [];
-
-  for (var r = 1; r < lines.length; r++)
-  {
-    var line = lines[r].trim();
-
-    if (!line)
-    {
-      continue;
-    }
-
-    var cols = splitSemicolonCsvLine_(line);
-
-    var txnDateStr = safeCsvValue_(cols, headerMap["Txn. Date"]);
-    var valueDateStr = safeCsvValue_(cols, headerMap["Value Date"]);
-    var description = safeCsvValue_(cols, headerMap["Description"]);
-    var amountStr = safeCsvValue_(cols, headerMap["Amount"]);
-
-    if (!txnDateStr || !valueDateStr || !description || !amountStr)
-    {
-      continue;
-    }
-
-    var txnDate = parseItalianDate_(txnDateStr);
-    var valueDate = parseItalianDate_(valueDateStr);
-    var amount = parseItalianAmount_(amountStr);
-
-    if (!txnDate || !valueDate)
-    {
-      continue;
-    }
-
-    if (amount === null)
-    {
-      continue;
-    }
-
-    rows.push({
-      txnDate: txnDate,
-      valueDate: valueDate,
-      valutaDate: getOlderDate_(txnDate, valueDate),
-      description: description,
-      amount: amount
-    });
-  }
-
-  return rows;
-}
-
-function getOlderDate_(dateA, dateB)
-{
-  if (!dateA)
-  {
-    return dateB;
-  }
-
-  if (!dateB)
-  {
-    return dateA;
-  }
-
-  return dateA.getTime() <= dateB.getTime() ? dateA : dateB;
-}
-
-function splitSemicolonCsvLine_(line)
-{
-  var result = [];
-  var current = "";
-  var inQuotes = false;
-
-  for (var i = 0; i < line.length; i++)
-  {
-    var ch = line.charAt(i);
-
-    if (ch === '"')
-    {
-      if (inQuotes && i + 1 < line.length && line.charAt(i + 1) === '"')
-      {
-        current += '"';
-        i++;
-      }
-      else
-      {
-        inQuotes = !inQuotes;
-      }
-
-      continue;
-    }
-
-    if (ch === ";" && !inQuotes)
-    {
-      result.push(current);
-      current = "";
-      continue;
-    }
-
-    current += ch;
-  }
-
-  result.push(current);
-
-  return result.map(
-    function(v)
-    {
-      return String(v || "").trim();
-    }
-  );
-}
-
-function safeCsvValue_(cols, index)
-{
-  if (typeof index === "undefined" || index === null)
-  {
-    return "";
-  }
-
-  if (index < 0 || index >= cols.length)
-  {
-    return "";
-  }
-
-  return String(cols[index] || "").trim();
-}
-
-function parseItalianDate_(value)
-{
-  var s = String(value || "").trim();
-  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-
-  if (!m)
-  {
-    return null;
-  }
-
-  var day = parseInt(m[1], 10);
-  var month = parseInt(m[2], 10) - 1;
-  var year = parseInt(m[3], 10);
-
-  return new Date(year, month, day);
-}
-
-function parseItalianAmount_(value)
-{
-  if (value === null || value === undefined)
-  {
-    return null;
-  }
-
-  var s = String(value).trim();
-
-  if (!s)
-  {
-    return null;
-  }
-
-  s = s.replace(/^'/, "");
-  s = s.replace(/\s+/g, "");
-  s = s.replace(/\./g, "");
-  s = s.replace(/,/g, ".");
-
-  var n = parseFloat(s);
-
-  if (isNaN(n))
-  {
-    return null;
-  }
-
-  return Math.round(n * 100) / 100;
-}
-
-function buildDescrizioneImportoKey_(descrizione, importo)
-{
-  return normalizeKeyText_(descrizione) + "||" + normalizeAmountKey_(importo);
-}
-
-function normalizeKeyText_(value)
-{
-  return String(value || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
-}
-
-function normalizeAmountKey_(value)
-{
-  var n = typeof value === "number" ? value : parseItalianAmount_(value);
-
-  if (n === null)
-  {
-    return "";
-  }
-
-  return n.toFixed(2);
-}
-
-function getExistingDescrizioneImportoKeys_(sheet, headerMap, headerRow)
-{
-  var lastRow = sheet.getLastRow();
-  var keys = {};
-
-  if (lastRow <= headerRow)
-  {
-    return keys;
-  }
-
-  var descCol = headerMap["Descrizione"];
-  var impCol = headerMap["Importo"];
-  var numRows = lastRow - headerRow;
-
-  var descrizioni = sheet.getRange(headerRow + 1, descCol, numRows, 1).getDisplayValues();
-  var importi = sheet.getRange(headerRow + 1, impCol, numRows, 1).getValues();
-
-  for (var i = 0; i < numRows; i++)
-  {
-    var descrizione = String(descrizioni[i][0] || "").trim();
-    var importo = importi[i][0];
-
-    if (!descrizione && (importo === "" || importo === null))
-    {
-      continue;
-    }
-
-    var key = buildDescrizioneImportoKey_(descrizione, importo);
-    keys[key] = true;
-  }
-
-  return keys;
-}
-
 
