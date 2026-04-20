@@ -62,6 +62,325 @@ function getScotToken(test = false)
   }
 }
 
+// ===== SCOT API =====
+
+/**
+ * Invia un ordine in uscita al portale SCOT (/api/uscite/).
+ * PUBLIC: chiamata da IMDB_Ordini_Scripts.
+ */
+function scotOrdiniUscita(orderId, clientId, header, rows, clienteNome, campagnaNome, files = null) {
+  var url = prodScotBaseURL + "/api/uscite/";
+  var token = getScotToken();
+  if (!token) { Logger.log("Impossibile ottenere il token"); return; }
+
+  var payload = { order_id: orderId, client: clientId, header: header, rows: rows };
+  if (files && Array.isArray(files) && files.length) { payload.files = files; }
+  Logger.log(payload);
+
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    headers: { "Authorization": "Bearer " + token },
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    var code = response.getResponseCode();
+    var json = JSON.parse(response.getContentText());
+    var htmlJSON = formatJsonGeneric(payload);
+    if (code === 200) {
+      Logger.log("Ordine Uscita: " + orderId + " inviato con successo: %s", htmlJSON);
+      sendEmailViaSMTP(htmlJSON, "ordini@ilmassimodelbere.it", "SPEDIZIONE: " + orderId + " Cliente: " + clienteNome + " Campagna: " + campagnaNome, "IMDB Logistics");
+      return json;
+    } else {
+      Logger.log("Errore invio ordine: " + orderId + " (%s): %s", code, JSON.stringify(json));
+      return null;
+    }
+  } catch (e) {
+    Logger.log("Eccezione invio ordine: " + orderId + " : %s", e);
+    return null;
+  }
+}
+
+function testscotOrdiniUscita_() {
+  var token = getScotToken();
+  if (!token) { Logger.log("Impossibile ottenere il token"); return; }
+  var header = {
+    business_name: "La Mia Azienda SRL",
+    document_date: (new Date()).toISOString(),
+    attachment: false, address: "Via Roma 1", location: "Milano",
+    province: "MI", zip_code: "20100", nation: "IT", urgent: false,
+    delivery_date: (new Date(new Date().getTime() + 3*24*3600*1000)).toISOString(),
+    appointment: false, email: "info@azienda.it", tel_reference: "0234567890",
+    carrier_note: "Consegna al piano", warehouse_note: "Att.n. imballi fragili",
+    cash_on_delivery_value: 0.0, cash_on_delivery_type: ""
+  };
+  var rows = [{ id: 1, code: "ABABR03", quantity: 2 }, { id: 2, code: "ABABR14", quantity: 1 }];
+  var orderName = "OD" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMddmmss");
+  var result = scotOrdiniUscita(token, orderName, "MDB", header, rows);
+  Logger.log(result ? "Succeded! Result: %s" : "ERROR! Result: %s", JSON.stringify(result));
+}
+
+function scotOrdiniUscita_Stato_(token, orderId, clientId) {
+  var url = prodScotBaseURL + "/api/uscite/stato/";
+  var payload = { order_id: orderId, client: clientId };
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    headers: { "Authorization": "Bearer " + token },
+    muteHttpExceptions: true
+  };
+  try {
+    var resp = UrlFetchApp.fetch(url, options);
+    var code = resp.getResponseCode();
+    var data = JSON.parse(resp.getContentText());
+    if (code === 200) {
+      Logger.log("Stato ordine %s: %s %s", orderId, JSON.stringify(data), resp);
+      return data;
+    } else {
+      Logger.log("Errore Stato ordine (%s): %s", code, JSON.stringify(data));
+      return null;
+    }
+  } catch (e) {
+    Logger.log("Eccezione Stato ordine: %s", e);
+    return null;
+  }
+}
+
+function testscotOrdiniUscita_Stato_() {
+  var token = getScotToken();
+  if (!token) { Logger.log("Token non ottenuto"); return; }
+  var stato = scotOrdiniUscita_Stato_(token, "5E01003342", "MDB");
+  if (!stato) { Logger.log("Recupero stato fallito"); return; }
+  Logger.log("Order ID: %s", stato.order_id);
+  Logger.log("Status code: %s", scotGetOrderStatusDescription_(stato.status));
+  if (stato.acquisition_date) Logger.log("Acquired: %s", stato.acquisition_date);
+  if (stato.conclusion_date)  Logger.log("Concluded: %s", stato.conclusion_date);
+  if (stato.rows) stato.rows.forEach(function(r) {
+    Logger.log("Riga %s (ID %s): code=%s, req=%s, proc=%s", r.row_number, r.id, r.code, r.quantity_required, r.quantity_processed);
+  });
+}
+
+function scotGetOrderStatusDescription_(code) {
+  var key = typeof code === 'string' ? parseInt(code, 10) : code;
+  var statusMap = {
+    0: "In Elaborazione", 10: "In Acquisizione", 20: "Acquisito (non valido)",
+    30: "Acquisito (valido)", 50: "Da Elaborare (Attivato)", 55: "In Elaborazione",
+    60: "Evadibile (elaborato)", 62: "Elaborato - Da Preparare", 63: "In Preparazione",
+    65: "Attesa esecuzione rimpiazzi", 68: "In Preparazione attività",
+    69: "Non Prelevabile", 70: "Prelevabile", 80: "Prelevabile (senza impegni)",
+    90: "In Prelievo", 95: "In Viaggio", 100: "Parzialmente Prelevato",
+    110: "Prelevato", 180: "Pesato", 200: "Spuntato", 500: "Concluso",
+    600: "Annullato", 1000: "Inevadibile", 5000: "Aggregato a Lista"
+  };
+  return statusMap.hasOwnProperty(key) ? statusMap[key] : "Sconosciuto (" + key + ")";
+}
+
+// ===== Functions moved from IMDB_Ordini_Scripts =====
+
+/**
+ * Finds the column number of a target header in a given header row of a sheet.
+ */
+function getEmailRiepilogoColumn(currentSheet, targetHeader, headerRow)
+{
+
+  // Get all header values from row 33 across all columns
+  var headers = currentSheet.getRange(headerRow, 1, 1, currentSheet.getLastColumn()).getValues()[0];
+
+  // Initialize the variable to store the column number
+  var targetColumn = -1;
+
+  // Loop through headers to find the matching column title
+  for (var i = 0; i < headers.length; i++) {
+    if (headers[i].toString().trim() === targetHeader) {
+      targetColumn = i + 1; // Column numbers are 1-indexed in Google Sheets
+      break;
+    }
+  }
+
+  if (targetColumn === -1) {
+    throw new Error('Column with header ' + targetHeader + ' not found in row ' + headerRow);
+  }
+
+  return targetColumn;
+}
+
+/**
+ * Sends a shipping order to the SCOT portal and logs the result.
+ */
+function inviaSpedizioni(numeroOrdine, scotUsciteHeader, scotUsciteRows, clienteNome, campagnaNome)
+{
+    if (numeroOrdine === null)
+      return;
+
+    var result =  scotOrdiniUscita(numeroOrdine, "MDB", scotUsciteHeader, scotUsciteRows, clienteNome, campagnaNome);
+    if (result)
+    {
+      Logger.log("SCOT Uscite: ordine " + numeroOrdine +" succeded! Result: %s", JSON.stringify(result));
+
+      return true;
+    }
+    else
+    {
+      Logger.log("SCOT Uscite: ordine " + numeroOrdine +" ERROR! Result: %s", JSON.stringify(result));
+      return false;
+    }
+}
+
+/**
+ * Submits the "Order Received" Mautic form for a customer.
+ */
+function submitFormOrderReceived(email, firstName, lastName, phoneNumber, actualCampaign, actualDate)
+{
+  // URL for the external form submission
+  var url = "https://www.ilmassimodelbere.it/Mautic/form/submit?formId=38";
+
+  // Build the payload that mimics the form fields
+  var payload = {
+    'mauticform[email]': email,
+    'mauticform[nome]': firstName,
+    'mauticform[cognome]': lastName,
+    'mauticform[telefono]': phoneNumber,
+    'mauticform[data_ordine_mettere_la_da]': actualDate,
+    'mauticform[descrizione_campagna]': actualCampaign,
+    'mauticform[formId]': '38',
+    'mauticform[return]': '',
+    'mauticform[formName]': 'itimdbinternalordinevinoorderreceived'
+  };
+
+  var options = {
+    method: 'post',
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  // Perform the POST request
+  var response = UrlFetchApp.fetch(url, options);
+
+  // Log details for diagnostics
+  Logger.log("Submitted form with:");
+  Logger.log("  Email: " + email);
+  Logger.log("  Name: " + lastName + " " + firstName);
+  Logger.log("  Data: " + actualDate);
+  Logger.log("  Campagna: " + actualCampaign);
+
+  return response.getContentText();
+}
+
+/**
+ * Submits the "Shipping Started" Mautic form for a customer.
+ */
+function submitFormShippingStarted(email, firstName, lastName, actualCampaign, actualDate)
+{
+  // URL for the external form submission
+  var url = "https://www.ilmassimodelbere.it/Mautic/form/submit?formId=30";
+
+  // Build the payload that mimics the form fields
+  var payload = {
+    'mauticform[nome]': firstName,
+    'mauticform[cognome]': lastName,
+    'mauticform[email]': email,
+    'mauticform[data_spedizione_mettere_l]': actualDate,
+    'mauticform[descrizione_campagna_iden]': actualCampaign,
+    'mauticform[formId]': '30',
+    'mauticform[return]': '',
+    'mauticform[formName]': 'itimdbinternalshippingstarted'
+  };
+
+  var options = {
+    method: 'post',
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  // Perform the POST request
+  var response = UrlFetchApp.fetch(url, options);
+
+  // Log details for diagnostics
+  Logger.log("Submitted form with:");
+  Logger.log("  Email: " + email);
+  Logger.log("  Name: " + lastName + " " + firstName);
+  Logger.log("  Data: " + actualDate);
+  Logger.log("  Campagna: " + actualCampaign);
+  Logger.log("Response: " + response.getContentText());
+
+  return response.getContentText();
+}
+
+/**
+ * Converts a column letter (e.g. "A", "AB") to its 1-based column number.
+ */
+function columnLetterToNumber(columnLetter) {
+  var columnNumber = 0;
+  var length = columnLetter.length;
+  for (var i = 0; i < length; i++) {
+    columnNumber *= 26;
+    columnNumber += (columnLetter.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
+  }
+  return columnNumber;
+}
+
+/**
+ * Returns the 1-based column index for the first matching header name, or 0 if not found.
+ */
+function getColumnByHeaderName(headerRow, headerName)
+{
+  for (var i = 0; i < headerRow.length; i++)
+  {
+    if (String(headerRow[i] || '').trim() === headerName)
+    {
+      return i + 1;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Returns the 1-based column index for the first matching header among possibleNames, or 0 if none found.
+ */
+function getColumnByHeaderNameMultiple(headerRow, possibleNames)
+{
+  for (var p = 0; p < possibleNames.length; p++)
+  {
+    var col = getColumnByHeaderName(headerRow, possibleNames[p]);
+
+    if (col)
+    {
+      return col;
+    }
+  }
+
+  return 0;
+}
+
+/**
+ * Returns true if value is a valid Date object or a parseable date string.
+ */
+function isValidDateValue(value)
+{
+  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime()))
+  {
+    return true;
+  }
+
+  var s = String(value || '').trim();
+
+  if (!s)
+  {
+    return false;
+  }
+
+  var d = new Date(s);
+
+  return !isNaN(d.getTime());
+}
+
+// ===== End of functions moved from IMDB_Ordini_Scripts =====
+
 // This function makes the actual API call to create the invoice
 function createFICOrderInvoice(invoiceType, clientRagioneSociale, clientEntityType, clientType, clientNome, clientCognome, clientCodice, clientAddress, clientCity, clientCAP, clientProvincia, clientEmail, clientPhone, clientVatNumber, clientPEC, clientSDI, clientCodiceFiscale, clientNoteSpedizione, clientNoteCliente, invoiceDate, invoiceSubject, invoiceVisibleSubject, invoiceAmount, invoiceItems, showPaymentMethod, paymentID, paymentMethod, paymentEMethod, paymentNotes, paymentsItems, useGrossPrice = true)
 {

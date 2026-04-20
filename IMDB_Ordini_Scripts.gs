@@ -3,272 +3,6 @@ const SCOT_PROD_BASE_URL = "https://api.portalescotsrl.it";
 const inviaSpedizioni_DaPortale = false;
 
 
-/**
- * Invia un ordine in uscita al portale SCOT (/api/uscite/).
- *
- * @param {string} token      Bearer token per l'autenticazione.
- * @param {string} orderId    order_id (maxLength:10).
- * @param {string} clientId   client ID (maxLength:5).
- * @param {Object} header     Oggetto header con almeno:
- *    business_name (string, max 30),
- *    document_date (ISO date-time),
- *    attachment (boolean)
- *    e le altre proprietà facoltative (address, location, province, ...).
- * @param {Array}  rows       Array di righe (prodotti), ciascuna con:
- *    id (integer),
- *    code (string, max 20),
- *    quantity (integer),
- *    udc (string, max 20, opzionale),
- *    batch (string, max 20, opzionale).
- * @param {Array}  [files]    (Opzionale) Array di file { file_name (max10), payload (base64) }.
- * @return {Object|null}      L’oggetto JSON di risposta se HTTP 200, altrimenti null.
- */
-function scotOrdiniUscita_(orderId, clientId, header, rows, clienteNome, campagnaNome, files = null) {
-  var url = SCOT_PROD_BASE_URL + "/api/uscite/";
-  
-  // 1) recupera il token
-  var token = IMDBCommonLibs.getScotToken();
-
-  if (!token) { 
-    Logger.log("Impossibile ottenere il token"); 
-    return; 
-  }
-
-  // Costruisci il payload completo
-  var payload = {
-    order_id: orderId,
-    client: clientId,
-    header: header,
-    rows: rows
-  };
-  if (files && Array.isArray(files) && files.length) {
-    payload.files = files;
-  }
-
-  Logger.log(payload);
-  
-  var options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    headers: {
-      "Authorization": "Bearer " + token
-    },
-    muteHttpExceptions: true
-  };
-
-  try {
-    var response = UrlFetchApp.fetch(url, options);
-    var code = response.getResponseCode();
-    var json = JSON.parse(response.getContentText());
-
-    var htmlJSON = IMDBCommonLibs.formatJsonGeneric(payload);
-    
-    if (code === 200) 
-    {
-      Logger.log("Ordine Uscita: " + orderId + " inviato con successo: %s", htmlJSON);
-
-      IMDBCommonLibs.sendEmailViaSMTP(htmlJSON, "ordini@ilmassimodelbere.it", "SPEDIZIONE: " + orderId + " Cliente: " + clienteNome + " Campagna: " + campagnaNome, "IMDB Logistics");
-      return json;
-    } 
-    else 
-    {
-      Logger.log("Errore invio ordine: " + orderId + " (%s): %s", code, JSON.stringify(json));
-      return null;
-    }
-  } catch (e) {
-    Logger.log("Eccezione invio ordine: " + orderId + " : %s", e);
-    return null;
-  }
-}
-
-/* ========== Esempio di utilizzo ========== */
-function testscotOrdiniUscita_() {
-  // 1) recupera il token
-  var token = IMDBCommonLibs.getScotToken();
-
-  if (!token) { 
-    Logger.log("Impossibile ottenere il token"); 
-    return; 
-  }
-  
-  // 2) prepara i dati di header
-  var header = {
-    business_name: "La Mia Azienda SRL",
-    document_date: (new Date()).toISOString(),
-    attachment: false,
-    address: "Via Roma 1",
-    location: "Milano",
-    province: "MI",
-    zip_code: "20100",
-    nation: "IT",
-    urgent: false,
-    delivery_date: (new Date(new Date().getTime() + 3*24*3600*1000)).toISOString(),
-    appointment: false,
-    email: "info@azienda.it",
-    tel_reference: "0234567890",
-    carrier_note: "Consegna al piano",
-    warehouse_note: "Att.n. imballi fragili",
-    cash_on_delivery_value: 0.0,
-    cash_on_delivery_type: ""
-  };
-  
-  // 3) prepara le righe (prodotti)
-  var rows = [
-    { id: 1, code: "ABABR03", quantity: 2 },
-    { id: 2, code: "ABABR14", quantity: 1 }
-  ];
-  
-  // 4) (opzionale) prepara eventuali file in base64
-  //var files = [
-  //  { file_name: "doc1.pdf", payload: "JVBERi0xLjQKJ..." }
-  //];
-  
-  // 5) invoca la funzione
-  var orderName = "OD" + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "MMddmmss");
-  var result = scotOrdiniUscita_(token, orderName, "MDB", header, rows);
-  if (result) 
-  {
-    Logger.log("Succeded! Result: %s", JSON.stringify(result));
-  }
-  else
-  {
-    Logger.log("ERROR! Result: %s", JSON.stringify(result));
-  }
-}
-
-/**
- * Recupera lo stato di un ordine uscita dal portale SCOT.
- *
- * Endpoint: /api/uscite/stato/
- * Richiede un JSON:
- *   { order_id: string, client: string }
- * Risponde con:
- *   {
- *     order_id: string,
- *     status: integer,
- *     acquisition_date?: string,
- *     conclusion_date?: string,
- *     rows: [
- *       { id, code, row_number, quantity_required, quantity_processed }, ...
- *     ]
- *   }
- *
- * @param {string} token    Bearer token ottenuto da IMDBCommonLibs.getScotToken().
- * @param {string} orderId  order_id (max 10 caratteri).
- * @param {string} clientId client ID (max 5 caratteri).
- * @return {Object|null}    L’oggetto JSON di risposta se HTTP 200, altrimenti null.
- */
-function scotOrdiniUscita_Stato_(token, orderId, clientId) {
-  var url = SCOT_PROD_BASE_URL + "/api/uscite/stato/";
-  
-  // Costruisci il body della richiesta
-  var payload = {
-    order_id: orderId,
-    client: clientId
-  };
-  
-  var options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    headers: {
-      "Authorization": "Bearer " + token
-    },
-    muteHttpExceptions: true
-  };
-  
-  try {
-    var resp = UrlFetchApp.fetch(url, options);
-    var code = resp.getResponseCode();
-    var data = JSON.parse(resp.getContentText());
-    
-    if (code === 200) {
-      Logger.log("Stato ordine %s: %s %s", orderId, JSON.stringify(data), resp);
-      return data;
-    } else {
-      Logger.log("Errore Stato ordine (%s): %s", code, JSON.stringify(data));
-      return null;
-    }
-  } catch (e) {
-    Logger.log("Eccezione Stato ordine: %s", e);
-    return null;
-  }
-}
-
-/* ========== Esempio di utilizzo ========== */
-function testscotOrdiniUscita_Stato_() {
-  // 1) recupera il token
-  var token = IMDBCommonLibs.getScotToken();
-  if (!token) {
-    Logger.log("Token non ottenuto");
-    return;
-  }
-  
-  // 2) chiama lo stato
-  var stato = scotOrdiniUscita_Stato_(token, "5E01003342", "MDB");
-  if (!stato) {
-    Logger.log("Recupero stato fallito");
-    return;
-  }
-  
-  // 3) log dei dettagli
-  Logger.log("Order ID: %s", stato.order_id);
-  Logger.log("Status code: %s", scotGetOrderStatusDescription_(stato.status));
-  if (stato.acquisition_date)    Logger.log("Acquired: %s", stato.acquisition_date);
-  if (stato.conclusion_date)     Logger.log("Concluded: %s", stato.conclusion_date);
-  
-  if (stato.rows)
-  {  
-      stato.rows.forEach(function(r) {
-      Logger.log(
-        "Riga %s (ID %s): code=%s, req=%s, proc=%s",
-        r.row_number, r.id, r.code, r.quantity_required, r.quantity_processed
-      );
-    });
-  }
-}
-
-/**
- * Restituisce la descrizione testuale per un codice stato ordine SCOT.
- *
- * @param {number|string} code - Il codice numerico dello stato.
- * @return {string} La descrizione corrispondente, o "Sconosciuto" se il codice non è nella mappa.
- */
-function scotGetOrderStatusDescription_(code) {
-  // Assicuriamoci di trattare il codice come numero
-  var key = typeof code === 'string' ? parseInt(code, 10) : code;
-  
-  var statusMap = {
-    0:    "In Elaborazione",
-    10:   "In Acquisizione",
-    20:   "Acquisito (non valido)",
-    30:   "Acquisito (valido)",
-    50:   "Da Elaborare (Attivato)",
-    55:   "In Elaborazione",
-    60:   "Evadibile (elaborato)",
-    62:   "Elaborato - Da Preparare",
-    63:   "In Preparazione",
-    65:   "Attesa esecuzione rimpiazzi",
-    68:   "In Preparazione attività",
-    69:   "Non Prelevabile",
-    70:   "Prelevabile",
-    80:   "Prelevabile (senza impegni)",
-    90:   "In Prelievo",
-    95:   "In Viaggio",
-    100:  "Parzialmente Prelevato",
-    110:  "Prelevato",
-    180:  "Pesato",
-    200:  "Spuntato",
-    500:  "Concluso",
-    600:  "Annullato",
-    1000: "Inevadibile",
-    5000: "Aggregato a Lista"
-  };
-  
-  return statusMap.hasOwnProperty(key) ? statusMap[key] : "Sconosciuto (" + key + ")";
-}
-
 function findAndInsertID_() {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var currentSheet = ss.getActiveSheet(); // Get the active sheet
@@ -350,30 +84,6 @@ function findAndInsertID_() {
   }
 }
 
-function getEmailRiepilogoColumn_(currentSheet, targetHeader, headerRow)
-{
-
-  // Get all header values from row 33 across all columns
-  var headers = currentSheet.getRange(headerRow, 1, 1, currentSheet.getLastColumn()).getValues()[0];
-
-  // Initialize the variable to store the column number
-  var targetColumn = -1;
-
-  // Loop through headers to find the matching column title
-  for (var i = 0; i < headers.length; i++) {
-    if (headers[i].toString().trim() === targetHeader) {
-      targetColumn = i + 1; // Column numbers are 1-indexed in Google Sheets
-      break;
-    }
-  }
-
-  if (targetColumn === -1) {
-    throw new Error('Column with header ' + targetHeader + ' not found in row ' + headerRow);
-  }
-
-  return targetColumn;
-}
-
 function inviaOrderReceived_() 
 {
   var ui = SpreadsheetApp.getUi();
@@ -384,7 +94,7 @@ function inviaOrderReceived_()
   // Get the current tab name
   var currentTabName = currentSheet.getName();
   
-  var orderReceivedCol = getEmailRiepilogoColumn_(currentSheet, 'Mail "Order Received"', 33);
+  var orderReceivedCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Mail "Order Received"', 33);
 
   // Get the currently selected range of cells on the active sheet
   var activeRange = currentSheet.getActiveRange();
@@ -430,7 +140,7 @@ function inviaOrderReceived_()
     }
 
     // Send Order Received form
-    submitFormOrderReceived_(customerEmail, customerName, customerSurname, customerPhone, currentTabName, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd"))
+    IMDBCommonLibs.submitFormOrderReceived(customerEmail, customerName, customerSurname, customerPhone, currentTabName, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd"))
 
     // Update row
     currentSheet.getRange(activeRow, orderReceivedCol).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy"));
@@ -448,10 +158,10 @@ function creaRiepilogo() {
   // Get the current tab name
   var currentTabName = currentSheet.getName();
 
-  var riepilogoSentCol = getEmailRiepilogoColumn_(currentSheet, 'Mail "Riepilogo Ordine"', 33);
-  var orderReceivedCol = getEmailRiepilogoColumn_(currentSheet, 'Mail "Order Received"', 33);
-  var notificationOrdineCol = getEmailRiepilogoColumn_(currentSheet, 'Notifica Ordine', 33);
-  var idAziendaCol = getEmailRiepilogoColumn_(currentSheet, 'ID Azienda', 33);
+  var riepilogoSentCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Mail "Riepilogo Ordine"', 33);
+  var orderReceivedCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Mail "Order Received"', 33);
+  var notificationOrdineCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Notifica Ordine', 33);
+  var idAziendaCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'ID Azienda', 33);
 
   // Get the currently selected range of cells on the active sheet
   var activeRange = currentSheet.getActiveRange();
@@ -529,7 +239,7 @@ function creaRiepilogo() {
 
     if (sendOrderReceived)
     {
-      submitFormOrderReceived_(customerEmail, customerName, customerSurname, telefonoFormatted, currentTabName, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd"));
+      IMDBCommonLibs.submitFormOrderReceived(customerEmail, customerName, customerSurname, telefonoFormatted, currentTabName, Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "yyyy-MM-dd"));
       currentSheet.getRange(activeRow, orderReceivedCol).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy"));
     }
 
@@ -584,7 +294,7 @@ function creaRiepilogo() {
     }
 
     // Scan Row 1 from column AI onwards to get the product details
-    var startColumn = getEmailRiepilogoColumn_(currentSheet, 'Codice bottiglia', 1) + 2;
+    var startColumn = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Codice bottiglia', 1) + 2;
     var rangeProdotti = [];
     var tableRows = [
       ["Codice", "Produttore", "Prodotto", "Quantità", labelListino, labelTotaleListino]
@@ -780,15 +490,15 @@ function creaSpedizioniOLD()
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var currentSheet = ss.getActiveSheet();  // "Current" tab
 
-  var shippingStartedCol = getEmailRiepilogoColumn_(currentSheet, 'Shipping Started', 33);
-  var noteSpedizioneCol = getEmailRiepilogoColumn_(currentSheet, 'Note', 33);
-  var mktGuidesCol = getEmailRiepilogoColumn_(currentSheet, 'Guide Spedite', 33);
-  var imdbVIPCol = getEmailRiepilogoColumn_(currentSheet, 'VIP', 33);
-  var noteMagazzinoCol = getEmailRiepilogoColumn_(currentSheet, 'Note Magazzino', 33);
-  var appTelefonicoCol = getEmailRiepilogoColumn_(currentSheet, 'Appuntamento Telefonico?', 33);
-  var priorityCol = getEmailRiepilogoColumn_(currentSheet, 'Priority?', 33);
-  var shippingPreparedCol = getEmailRiepilogoColumn_(currentSheet, 'Shipping Prepared', 33);
-  var startColumn = getEmailRiepilogoColumn_(currentSheet, 'Codice bottiglia', 1) + 2;
+  var shippingStartedCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Shipping Started', 33);
+  var noteSpedizioneCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Note', 33);
+  var mktGuidesCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Guide Spedite', 33);
+  var imdbVIPCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'VIP', 33);
+  var noteMagazzinoCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Note Magazzino', 33);
+  var appTelefonicoCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Appuntamento Telefonico?', 33);
+  var priorityCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Priority?', 33);
+  var shippingPreparedCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Shipping Prepared', 33);
+  var startColumn = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Codice bottiglia', 1) + 2;
 
   // Get the currently selected range of cells on the active sheet
   var activeRange = currentSheet.getActiveRange();
@@ -1194,11 +904,11 @@ function creaSpedizioniOLD()
       var responseDo = ui.alert("Sicuro di voler inviare a SCOT la spedizione di: " +   currentSheet.getRange(activeRow, 4).getValue() + ", vuoi mandarlo di nuovo?", ui.ButtonSet.YES_NO);
       if (responseDo === ui.Button.YES) 
       {
-        scotOrdiniUscita_(numeroOrdine,"MDB", scotUsciteHeader, scotUsciteRows, ragioneSociale, currentSheet.getName());
+         IMDBCommonLibs.scotOrdiniUscita(numeroOrdine,"MDB", scotUsciteHeader, scotUsciteRows, ragioneSociale, currentSheet.getName());
       }
     }
 
-    submitFormShippingStarted_(emailCliente,firstName, surname, currentSheet.getName(),Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/YYYY"));
+    IMDBCommonLibs.submitFormShippingStarted(emailCliente,firstName, surname, currentSheet.getName(),Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/YYYY"));
     currentSheet.getRange(activeRow, shippingPreparedCol).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy"));
 
   } // Next client
@@ -1212,15 +922,15 @@ function creaSpedizioniFromMautic()
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var currentSheet = ss.getActiveSheet();  // "Current" tab
 
-  var shippingStartedCol   = getEmailRiepilogoColumn_(currentSheet, 'Shipping Started', 33);
-  var noteSpedizioneCol    = getEmailRiepilogoColumn_(currentSheet, 'Note', 33);
-  var mktGuidesCol         = getEmailRiepilogoColumn_(currentSheet, 'Guide Spedite', 33);
-  var imdbVIPCol           = getEmailRiepilogoColumn_(currentSheet, 'VIP', 33);
-  var noteMagazzinoCol     = getEmailRiepilogoColumn_(currentSheet, 'Note Magazzino', 33);
-  var appTelefonicoCol     = getEmailRiepilogoColumn_(currentSheet, 'Appuntamento Telefonico?', 33);
-  var priorityCol          = getEmailRiepilogoColumn_(currentSheet, 'Priority?', 33);
-  var shippingPreparedCol  = getEmailRiepilogoColumn_(currentSheet, 'Shipping Prepared', 33);
-  var startColumn          = getEmailRiepilogoColumn_(currentSheet, 'Codice bottiglia', 1) + 2;
+  var shippingStartedCol   = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Shipping Started', 33);
+  var noteSpedizioneCol    = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Note', 33);
+  var mktGuidesCol         = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Guide Spedite', 33);
+  var imdbVIPCol           = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'VIP', 33);
+  var noteMagazzinoCol     = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Note Magazzino', 33);
+  var appTelefonicoCol     = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Appuntamento Telefonico?', 33);
+  var priorityCol          = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Priority?', 33);
+  var shippingPreparedCol  = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Shipping Prepared', 33);
+  var startColumn          = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Codice bottiglia', 1) + 2;
 
 
   var activeRange = currentSheet.getActiveRange();
@@ -1466,11 +1176,11 @@ function creaSpedizioniFromMautic()
       );
       if (responseDo === ui.Button.YES)
       {
-        scotOrdiniUscita_(numeroOrdine,"MDB", scotUsciteHeader, scotUsciteRows, ragioneSociale, currentSheet.getName());
+         IMDBCommonLibs.scotOrdiniUscita(numeroOrdine,"MDB", scotUsciteHeader, scotUsciteRows, ragioneSociale, currentSheet.getName());
       }
     }
 
-    submitFormShippingStarted_(
+    IMDBCommonLibs.submitFormShippingStarted(
       payload.email,
       payload.firstName,
       payload.surname,
@@ -1614,7 +1324,7 @@ function pickMauticContactFromArray_(ui, customerDataArray, keyLabel)
  * - Raggruppa eventuali duplicati in uscite_testate per Documento, utilizzando la prima occorrenza
  * - Raggruppa le righe di dettaglio da uscite_righe per N_Documento
  * - Costruisce scotUsciteHeader da uscite_testate e scotUsciteRows da uscite_righe
- * - Chiama inviaSpedizioni_(ui, numeroOrdine, scotUsciteHeader, scotUsciteRows)
+ * - Chiama IMDBCommonLibs.inviaSpedizioni(ui, numeroOrdine, scotUsciteHeader, scotUsciteRows)
  *
  * MODIFICHE:
  * - Colonna "Data Spedizione": cercata per header; se manca viene aggiunta in coda
@@ -1856,7 +1566,7 @@ function processaFileSpedizioni()
     var currentSheet = ss.getActiveSheet();  // "Current" tab
     var campagnaNome = currentSheet.getName();
 
-    if (inviaSpedizioni_(num, scotUsciteHeader, scotUsciteRows, ragioneSociale, campagnaNome))
+    if (IMDBCommonLibs.inviaSpedizioni(num, scotUsciteHeader, scotUsciteRows, ragioneSociale, campagnaNome))
     {
       sheetTestate.getRange(rowIndex, shipDateCol).setValue(todayHuman);
     }
@@ -1874,7 +1584,7 @@ function processaFileSpedizioni()
  * - Raggruppa eventuali duplicati in uscite_testate per Documento, utilizzando la prima occorrenza
  * - Raggruppa le righe di dettaglio da uscite_righe per N_Documento
  * - Costruisce scotUsciteHeader da uscite_testate e scotUsciteRows da uscite_righe
- * - Chiama inviaSpedizioni_(ui, numeroOrdine, scotUsciteHeader, scotUsciteRows)
+ * - Chiama IMDBCommonLibs.inviaSpedizioni(ui, numeroOrdine, scotUsciteHeader, scotUsciteRows)
  */
 function processaFileSpedizioniOLD_() 
 {
@@ -2037,7 +1747,7 @@ function processaFileSpedizioniOLD_()
         var currentSheet = ss.getActiveSheet();  // "Current" tab
         var campagnaNome = currentSheet.getName();
 
-        if (inviaSpedizioni_(num, scotUsciteHeader, scotUsciteRows, ragioneSociale, campagnaNome))
+        if (IMDBCommonLibs.inviaSpedizioni(num, scotUsciteHeader, scotUsciteRows, ragioneSociale, campagnaNome))
         {
           sheetTestate.getRange(rowIndex, 16).setValue(todayHuman);
         }
@@ -2105,32 +1815,6 @@ function checkDocumentConsistency_(orderHeaders, orderDetails)
 }
 
 
-function inviaSpedizioni_(numeroOrdine, scotUsciteHeader, scotUsciteRows, clienteNome, campagnaNome)
-{
-    if (numeroOrdine === null)
-      return;
-    
-    var result = scotOrdiniUscita_(numeroOrdine, "MDB", scotUsciteHeader, scotUsciteRows, clienteNome, campagnaNome);
-    if (result) 
-    {
-      Logger.log("SCOT Uscite: ordine " + numeroOrdine +" succeded! Result: %s", JSON.stringify(result));
-//      ui.alert("SCOT Uscite: ordine " + numeroOrdine +" succeded! Result: " + JSON.stringify(result));
-
-      // Set SPEDITO Columns
-      
-//      currentSheet.getRange(activeRow, shippingStartedCol).setValue(numeroOrdine);
-//      currentSheet.getRange(activeRow, 15).setValue("Spedito: " + numeroOrdine);
-
-      return true;
-    }
-    else
-    {
-      Logger.log("SCOT Uscite: ordine " + numeroOrdine +" ERROR! Result: %s", JSON.stringify(result));
-      return false;
-    }
-}
-
-
 function notificaSpedizioni() 
 {
   var ui = SpreadsheetApp.getUi();
@@ -2139,8 +1823,8 @@ function notificaSpedizioni()
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var currentSheet = ss.getActiveSheet();  // "Current" tab
 
-  var shippingStartedCol = getEmailRiepilogoColumn_(currentSheet, 'Shipping Started', 33);
-  var notificationCol = getEmailRiepilogoColumn_(currentSheet, 'Notifica Spedizione', 33);
+  var shippingStartedCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Shipping Started', 33);
+  var notificationCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Notifica Spedizione', 33);
 
   // Get the currently selected range of cells on the active sheet
   var activeRange = currentSheet.getActiveRange();
@@ -2260,83 +1944,6 @@ function notificaSpedizioni()
   } // Next client
 }
 
-
-function submitFormOrderReceived_(email, firstName, lastName, phoneNumber, actualCampaign, actualDate) 
-{
-  // URL for the external form submission
-  var url = "https://www.ilmassimodelbere.it/Mautic/form/submit?formId=38";
-  
-  // Build the payload that mimics the form fields
-  var payload = {
-    'mauticform[email]': email,
-    'mauticform[nome]': firstName,
-    'mauticform[cognome]': lastName,
-    'mauticform[telefono]': phoneNumber,
-    'mauticform[data_ordine_mettere_la_da]': actualDate,
-    'mauticform[descrizione_campagna]': actualCampaign,
-    'mauticform[formId]': '38',
-    'mauticform[return]': '',
-    'mauticform[formName]': 'itimdbinternalordinevinoorderreceived'
-  };
-
-  var options = {
-    method: 'post',
-    payload: payload,
-    muteHttpExceptions: true
-  };
-
-  // Perform the POST request
-  var response = UrlFetchApp.fetch(url, options);
-
-  // Log details for diagnostics
-  Logger.log("Submitted form with:");
-  Logger.log("  Email: " + email);
-  Logger.log("  Name: " + lastName + " " + firstName);
-  Logger.log("  Data: " + actualDate);
-  Logger.log("  Campagna: " + actualCampaign);
-  //Logger.log("Response: " + response.getContentText());
-
-  return response.getContentText();
-}
-
-
-
-function submitFormShippingStarted_(email, firstName, lastName, actualCampaign, actualDate) 
-{
-  // URL for the external form submission
-  var url = "https://www.ilmassimodelbere.it/Mautic/form/submit?formId=30";
-  
-  // Build the payload that mimics the form fields
-  var payload = {
-    'mauticform[nome]': firstName,
-    'mauticform[cognome]': lastName,
-    'mauticform[email]': email,
-    'mauticform[data_spedizione_mettere_l]': actualDate,
-    'mauticform[descrizione_campagna_iden]': actualCampaign,
-    'mauticform[formId]': '30',
-    'mauticform[return]': '',
-    'mauticform[formName]': 'itimdbinternalshippingstarted'
-  };
-
-  var options = {
-    method: 'post',
-    payload: payload,
-    muteHttpExceptions: true
-  };
-
-  // Perform the POST request
-  var response = UrlFetchApp.fetch(url, options);
-
-  // Log details for diagnostics
-  Logger.log("Submitted form with:");
-  Logger.log("  Email: " + email);
-  Logger.log("  Name: " + lastName + " " + firstName);
-  Logger.log("  Data: " + actualDate);
-  Logger.log("  Campagna: " + actualCampaign);
-  Logger.log("Response: " + response.getContentText());
-
-  return response.getContentText();
-}
 
 /*function creaFileOrdiniIDIKA() {
   try {
@@ -2611,16 +2218,6 @@ function submitFormShippingStarted_(email, firstName, lastName, actualCampaign, 
 
 
 // Function to convert a column letter (e.g., "A", "AB") to a column number (1-based index)
-function columnLetterToNumber_(columnLetter) {
-  var columnNumber = 0;
-  var length = columnLetter.length;
-  for (var i = 0; i < length; i++) {
-    columnNumber *= 26;
-    columnNumber += (columnLetter.charCodeAt(i) - 'A'.charCodeAt(0) + 1);
-  }
-  return columnNumber;
-}
-
 function promptUser_(prompt) {
   var ui = SpreadsheetApp.getUi();
   var response = ui.prompt(prompt);
@@ -2648,8 +2245,8 @@ function createProformaFromSheet() {
   var ui = SpreadsheetApp.getUi();
   var firstColPrompt = ui.prompt('Enter the first column number where the articles start (e.g., 8 for column H)').getResponseText();
   var lastColPrompt = ui.prompt('Enter the last column number where the articles end').getResponseText();
-  var firstCol = columnLetterToNumber_(firstColPrompt);
-  var lastCol = columnLetterToNumber_(lastColPrompt);
+  var firstCol = IMDBCommonLibs.columnLetterToNumber(firstColPrompt);
+  var lastCol = IMDBCommonLibs.columnLetterToNumber(lastColPrompt);
   
   // Validate column range
   if (isNaN(firstCol) || isNaN(lastCol) || firstCol > lastCol) {
@@ -2799,11 +2396,11 @@ function createOrderInvoice()
   const currentCell = currentSheet.getActiveCell();
   const currentRow = currentCell.getRow();
   
-  var fatturaCol = getEmailRiepilogoColumn_(currentSheet, 'Fattura', 33);
-  var fatturaVIPCol = getEmailRiepilogoColumn_(currentSheet, 'Fattura Acconto VIP', 33);
-  var pagamentoCol = getEmailRiepilogoColumn_(currentSheet, 'Stato pagamento', 33);
-  var totaleEffettivoCol = getEmailRiepilogoColumn_(currentSheet, 'Totale', 33);
-  var startColumn = getEmailRiepilogoColumn_(currentSheet, 'Codice bottiglia', 1) + 2;
+  var fatturaCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Fattura', 33);
+  var fatturaVIPCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Fattura Acconto VIP', 33);
+  var pagamentoCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Stato pagamento', 33);
+  var totaleEffettivoCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Totale', 33);
+  var startColumn = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Codice bottiglia', 1) + 2;
 
   // Get the "Indirizzi Spedizione" and "Indirizzi Fatturazione" sheets
   var indirizziSpedizioneSheet = currentSpreadSheet.getSheetByName('Indirizzi Spedizione');
@@ -3290,8 +2887,8 @@ function aggiornaSaldoVIPSelezionati(range = null)
       // var totaleIMDB = Number(sheet.getRange(r, X).getValue() || 0);
       // var totaleCliente = Number(sheet.getRange(r, Y).getValue() || 0);
 
-      var totaleIMDBCol = getEmailRiepilogoColumn_(currentSheet, 'Totale IMDB#', 33);
-      var totaleClienteCol = getEmailRiepilogoColumn_(currentSheet, 'Totale#', 33);
+      var totaleIMDBCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Totale IMDB#', 33);
+      var totaleClienteCol = IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Totale#', 33);
 
       var totaleIMDB = Number(currentSheet.getRange(r, totaleIMDBCol).getValue() || 0);      // <-- DA SOSTITUIRE
       var totaleCliente = Number(currentSheet.getRange(r, totaleClienteCol).getValue() || 0);   // <-- DA SOSTITUIRE
@@ -3496,7 +3093,7 @@ function checkGiacenzeSpedizioniOLD()
   }
 }*/
 
-function ritrovaGiacenzeSCOT(giacenze)
+function ritrovaGiacenzeSCOT_(giacenze)
 {
   var token = IMDBCommonLibs.getScotToken(false);
   if (token)
@@ -3602,7 +3199,7 @@ function checkGiacenzeSpedizioni()
 
   var headerTestate = sheetTestate.getRange(1, 1, 1, lastColTestate).getValues()[0];
 
-  var dataSpedizioneCol = getColumnByHeaderName_(headerTestate, 'Data Spedizione');
+  var dataSpedizioneCol = IMDBCommonLibs.getColumnByHeaderName(headerTestate, 'Data Spedizione');
   if (!dataSpedizioneCol)
   {
     dataSpedizioneCol = lastColTestate + 1;
@@ -3610,7 +3207,7 @@ function checkGiacenzeSpedizioni()
     Logger.log('Colonna "Data Spedizione" creata alla posizione ' + dataSpedizioneCol);
   }
 
-  var giacenzaCheckCol = getColumnByHeaderName_(headerTestate, 'Giacenza?');
+  var giacenzaCheckCol = IMDBCommonLibs.getColumnByHeaderName(headerTestate, 'Giacenza?');
   if (!giacenzaCheckCol)
   {
     giacenzaCheckCol = lastColTestate + 1;
@@ -3632,9 +3229,9 @@ function checkGiacenzeSpedizioni()
   var codiceCol = 2;
   var quantitaCol = 3;
 
-  var numeroSpedizioneRigheByHeader = getColumnByHeaderNameMultiple_(headerRighe, ['Numero spedizione', 'Numero Spedizione', 'Spedizione', 'Num spedizione']);
-  var codiceByHeader = getColumnByHeaderNameMultiple_(headerRighe, ['Codice', 'Codice articolo', 'Codice Articolo', 'Articolo']);
-  var quantitaByHeader = getColumnByHeaderNameMultiple_(headerRighe, ['Quantità', 'Quantita', 'Qta', 'Qtà']);
+  var numeroSpedizioneRigheByHeader = IMDBCommonLibs.getColumnByHeaderNameMultiple(headerRighe, ['Numero spedizione', 'Numero Spedizione', 'Spedizione', 'Num spedizione']);
+  var codiceByHeader = IMDBCommonLibs.getColumnByHeaderNameMultiple(headerRighe, ['Codice', 'Codice articolo', 'Codice Articolo', 'Articolo']);
+  var quantitaByHeader = IMDBCommonLibs.getColumnByHeaderNameMultiple(headerRighe, ['Quantità', 'Quantita', 'Qta', 'Qtà']);
 
   if (numeroSpedizioneRigheByHeader)
   {
@@ -3697,7 +3294,7 @@ function checkGiacenzeSpedizioni()
       continue;
     }
 
-    if (isValidDateValue_(dataSpedizioneValue))
+    if (IMDBCommonLibs.isValidDateValue(dataSpedizioneValue))
     {
       Logger.log(
         'Spedizione ' +
@@ -3711,7 +3308,7 @@ function checkGiacenzeSpedizioni()
     if (!giacenze)
     {
       giacenze = {};
-      giacenze = ritrovaGiacenzeSCOT(giacenze);
+      giacenze = ritrovaGiacenzeSCOT_(giacenze);
     }
     checkedCount++;
 
@@ -3831,52 +3428,8 @@ function checkGiacenzeSpedizioni()
   }
 }
 
-function getColumnByHeaderName_(headerRow, headerName)
-{
-  for (var i = 0; i < headerRow.length; i++)
-  {
-    if (String(headerRow[i] || '').trim() === headerName)
-    {
-      return i + 1;
-    }
-  }
 
-  return 0;
-}
 
-function getColumnByHeaderNameMultiple_(headerRow, possibleNames)
-{
-  for (var p = 0; p < possibleNames.length; p++)
-  {
-    var col = getColumnByHeaderName_(headerRow, possibleNames[p]);
-
-    if (col)
-    {
-      return col;
-    }
-  }
-
-  return 0;
-}
-
-function isValidDateValue_(value)
-{
-  if (Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value.getTime()))
-  {
-    return true;
-  }
-
-  var s = String(value || '').trim();
-
-  if (!s)
-  {
-    return false;
-  }
-
-  var d = new Date(s);
-
-  return !isNaN(d.getTime());
-}
 
 /**
  * Legge la cella attuale, estrae il codice spedizione a 10 cifre,
@@ -4150,7 +3703,7 @@ function fillMauticCustomerDataOBSOLETE() {
  * Calcola il costo logistico progressivo per l'importazione.
  */
 
-function calcoloImportFrancia(numBottiglie, markupOccultoPerBtg)
+function calcoloImportFrancia_(numBottiglie, markupOccultoPerBtg)
 {
   // Pulizia input
   var btg = parseFloat(numBottiglie);
@@ -4193,11 +3746,11 @@ function calcoloImportFrancia(numBottiglie, markupOccultoPerBtg)
   return [
     ["REPORT IMPORT FRANCIA", "RISULTATO"],
     ["N. Bottiglie in Input", btg],
-    ["Costo Trasporto Netto", formattatoreItaliano(costoTrasportoTotal)],
-    ["Costo Burocrazia (Flat)", formattatoreItaliano(COSTO_BUROCRAZIA_FLAT)],
+    ["Costo Trasporto Netto", formattatoreItaliano_(costoTrasportoTotal)],
+    ["Costo Burocrazia (Flat)", formattatoreItaliano_(COSTO_BUROCRAZIA_FLAT)],
     ["COSTO TOTALE IMPORT", costoTotaleReale], // Valore raw per macro
-    ["Incidenza/Bottiglia", formattatoreItaliano(costoTotaleReale / btg)],
-    ["MARGINE LOGISTICO", formattatoreItaliano(margineLogistico)],
+    ["Incidenza/Bottiglia", formattatoreItaliano_(costoTotaleReale / btg)],
+    ["MARGINE LOGISTICO", formattatoreItaliano_(margineLogistico)],
     ["STATUS", margineLogistico >= 0 ? "✅ OK" : "❌ PERDITA"]
   ];
 }
@@ -4205,7 +3758,7 @@ function calcoloImportFrancia(numBottiglie, markupOccultoPerBtg)
 /**
  * FORMATTATORE MANUALE CORRETTO
  */
-function formattatoreItaliano(valore) {
+function formattatoreItaliano_(valore) {
   // Forza la conversione a numero per evitare isNaN su stringhe numeriche
   var n = Number(valore);
   
@@ -4236,7 +3789,7 @@ function aggiornaCostiImport() {
   if (!isNaN(numBottiglie) && numBottiglie > 0) {
     
     // Calcolo
-    var risultatoTable = calcoloImportFrancia(numBottiglie, markupFisso);
+    var risultatoTable = calcoloImportFrancia_(numBottiglie, markupFisso);
 
     Logger.log(risultatoTable);
     
@@ -4245,7 +3798,7 @@ function aggiornaCostiImport() {
       var costoNumerico = risultatoTable[4][1];
       
       // Formattazione
-      var costoTesto = formattatoreItaliano(costoNumerico);
+      var costoTesto = formattatoreItaliano_(costoNumerico);
       
       // Scrittura in G (7)
       sheet.getRange(currentRow, 7).setValue(costoTesto);
@@ -4280,17 +3833,17 @@ function calcolaLogisticaDaSelezione()
   aggiornaCostiImport();
   
   const colMap = {
-    numBtgTotali: findCol(headers, "Bottiglie"),
-    numBtgFrancesi: findCol(headers, "Bottiglie"),
-    isPallet: findCol(headers, "Pallet?"),
-    regione: findCol(headers, "Regione"),
-    isMistoCartoneOut: findCol(headers, "Misto?"),
-    isZonaDisagiata: findCol(headers, "Disagiata?"),
-    isPreavviso: findCol(headers, "Appuntamento Telefonico?"),
-    isUrgenza: findCol(headers, "Priority?"),
-    incassoSpedEsplicita: findCol(headers, "Spedizione"),
-    myCDV: findCol(headers, "CDV"),
-    myCDV_Puro: findCol(headers, "CDV Puro"),
+    numBtgTotali: findCol_(headers, "Bottiglie"),
+    numBtgFrancesi: findCol_(headers, "Bottiglie"),
+    isPallet: findCol_(headers, "Pallet?"),
+    regione: findCol_(headers, "Regione"),
+    isMistoCartoneOut: findCol_(headers, "Misto?"),
+    isZonaDisagiata: findCol_(headers, "Disagiata?"),
+    isPreavviso: findCol_(headers, "Appuntamento Telefonico?"),
+    isUrgenza: findCol_(headers, "Priority?"),
+    incassoSpedEsplicita: findCol_(headers, "Spedizione"),
+    myCDV: findCol_(headers, "CDV"),
+    myCDV_Puro: findCol_(headers, "CDV Puro"),
     pesoTotale : findCol (headers, "Peso totale"),
     outputCol: findCol (headers, "Spedizione italiana"),
     logisticaCol : findCol (headers, "Logistica OUT"),
@@ -4314,19 +3867,19 @@ function calcolaLogisticaDaSelezione()
     if (currentRow <= headerRow) continue; 
 
     // Recupero dati dalle celle
-    let numBtgTotali = parseNum(sheet.getRange(currentRow, colMap.numBtgTotali).getValue());
-    let numBtgFrancesi = parseNum(sheet.getRange(currentRow, colMap.numBtgFrancesi).getValue());
+    let numBtgTotali = parseNum_(sheet.getRange(currentRow, colMap.numBtgTotali).getValue());
+    let numBtgFrancesi = parseNum_(sheet.getRange(currentRow, colMap.numBtgFrancesi).getValue());
     
-    let isPallet = parseBool(sheet.getRange(currentRow, colMap.isPallet).getValue());
+    let isPallet = parseBool_(sheet.getRange(currentRow, colMap.isPallet).getValue());
     let regione = sheet.getRange(currentRow, colMap.regione).getValue().toString();
-    let isMisto = parseBool(sheet.getRange(currentRow, colMap.isMistoCartoneOut).getValue());
-    let isDisagiata = parseBool(sheet.getRange(currentRow, colMap.isZonaDisagiata).getValue());
-    let isPreavviso = parseBool(sheet.getRange(currentRow, colMap.isPreavviso).getValue());
-    let isUrgenza = parseBool(sheet.getRange(currentRow, colMap.isUrgenza).getValue());
+    let isMisto = parseBool_(sheet.getRange(currentRow, colMap.isMistoCartoneOut).getValue());
+    let isDisagiata = parseBool_(sheet.getRange(currentRow, colMap.isZonaDisagiata).getValue());
+    let isPreavviso = parseBool_(sheet.getRange(currentRow, colMap.isPreavviso).getValue());
+    let isUrgenza = parseBool_(sheet.getRange(currentRow, colMap.isUrgenza).getValue());
     let pesoTotale = sheet.getRange(currentRow, colMap.pesoTotale).getValue();
     
-    let incassoEsp = parseNum(sheet.getRange(currentRow, colMap.incassoSpedEsplicita).getValue());
-    let incassoOcc = parseNum(sheet.getRange(currentRow, colMap.myCDV).getValue()) - parseNum(sheet.getRange(currentRow, colMap.myCDV_Puro).getValue());
+    let incassoEsp = parseNum_(sheet.getRange(currentRow, colMap.incassoSpedEsplicita).getValue());
+    let incassoOcc = parseNum_(sheet.getRange(currentRow, colMap.myCDV).getValue()) - parseNum_(sheet.getRange(currentRow, colMap.myCDV_Puro).getValue());
 
     // 3. CHIAMATA ALLE FUNZIONI ORIGINALI (NON TOCCATE)
     
@@ -4354,11 +3907,11 @@ function calcolaLogisticaDaSelezione()
 
 /*    // Calcolo Import Francia tramite calcoloImportFrancia
     // Nota: markupOccultoPerBtg qui non serve per il costo, passiamo 1 come placeholder
-    let tabellaImport = calcoloImportFrancia(numBtgFrancesi, 1);
+    let tabellaImport = calcoloImportFrancia_(numBtgFrancesi, 1);
     let costoImportSoloFR = tabellaImport[4][1];
 */
-    sheet.getRange(currentRow, colMap.outputCol).setValue(formattatoreItaliano(parseFloat(costoSpedizione)));
-    sheet.getRange(currentRow, colMap.logisticaCol).setValue(formattatoreItaliano(parseFloat(costoLogisticaOUT)));
+    sheet.getRange(currentRow, colMap.outputCol).setValue(formattatoreItaliano_(parseFloat(costoSpedizione)));
+    sheet.getRange(currentRow, colMap.logisticaCol).setValue(formattatoreItaliano_(parseFloat(costoLogisticaOUT)));
   }
   
   SpreadsheetApp.getActiveSpreadsheet().toast("Costi calcolati su selezione.", "OPERATIONS");
@@ -4366,7 +3919,7 @@ function calcolaLogisticaDaSelezione()
 
 /* --- FUNZIONI DI SUPPORTO PER IL MAPPING --- */
 
-function findCol(headers, stringa) {
+function findCol_(headers, stringa) {
   for (let i = 0; i < headers.length; i++) {
     if (headers[i].toString().toLowerCase().trim() === stringa.toLowerCase().trim()) return i + 1;
     // Fallback se la stringa è contenuta
@@ -4375,7 +3928,7 @@ function findCol(headers, stringa) {
   return -1;
 }
 
-function parseNum(val) {
+function parseNum_(val) {
   if (typeof val === 'string') {
     val = val.replace('.', '').replace(',', '.').replace(/[^\d.-]/g, '');
   }
@@ -4383,7 +3936,7 @@ function parseNum(val) {
   return isNaN(n) ? 0 : n;
 }
 
-function parseBool(val) {
+function parseBool_(val) {
   if (!val) return false;
   let s = val.toString().toLowerCase().trim();
   return (s === "si" || s === "sì" || s === "true" || s === "x" || s === "1");
@@ -4623,7 +4176,7 @@ function fillMauticCustomerData() {
 /**
  * Funzione principale: invia eventi Meta CAPI per le righe selezionate,
  * controllando la colonna "Meta CAPI" trovata in riga 33 tramite:
- *   getEmailRiepilogoColumn_(currentSheet, 'Meta CAPI', 33);
+ *   IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Meta CAPI', 33);
  *
  * - Se la cella "Meta CAPI" della riga è VUOTA -> invia evento e scrive data odierna dd/MM/yyyy
  * - Se NON è vuota -> mostra il valore e chiede se reinviare l’evento (YES/NO)
@@ -4649,15 +4202,15 @@ function metaCapiSendFromSelectedRows()
   const HEADER_ROW = 33;
 
   // Colonne via helper esistente
-  const metaCapiCol = Number(getEmailRiepilogoColumn_(currentSheet, 'Meta CAPI', HEADER_ROW)) || 0;
+  const metaCapiCol = Number(IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Meta CAPI', HEADER_ROW)) || 0;
   if (!metaCapiCol) {
     ui.alert(`Colonna "Meta CAPI" non trovata (header in riga ${HEADER_ROW}).\nImpossibile continuare.`);
     return;
   }
 
-  const valueCol = Number(getEmailRiepilogoColumn_(currentSheet, 'Ricarico reale', HEADER_ROW)) || 0;
+  const valueCol = Number(IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Ricarico reale', HEADER_ROW)) || 0;
 
-  const dataPagamentoCol = Number(getEmailRiepilogoColumn_(currentSheet, 'Stato pagamento', HEADER_ROW)) || 0;
+  const dataPagamentoCol = Number(IMDBCommonLibs.getEmailRiepilogoColumn(currentSheet, 'Stato pagamento', HEADER_ROW)) || 0;
   if (!dataPagamentoCol) {
     ui.alert(`Colonna "Stato pagamento" non trovata (header in riga ${HEADER_ROW}).\nImpossibile continuare.`);
     return;
