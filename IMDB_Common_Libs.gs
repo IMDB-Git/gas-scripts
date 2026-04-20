@@ -1,6 +1,4 @@
 var FICUrl = "https://api-v2.fattureincloud.it";
-var FICCompanyID = "1294648";
-var FICBearer = "a/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyZWYiOiJET2Rja1RYS3Bzd2M0elN2cUhGdm1uNUNaNlJIcjd3VSJ9.1oQAGDpXjx2YsVwpCknBBcvMu9kqYRk1CYxbKrFPoCQ";
 
 // SCOT srl
 
@@ -8,9 +6,6 @@ var FICBearer = "a/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyZWYiOiJET2Rja1RYS3Bz
 var prodScotBaseURL = "https://api.portalescotsrl.it";
 var testScotBaseURL = "https://testapi.portalescotsrl.it";
 var scotBaseURL;
-var scotUsername = "imdb";
-var scotPassword = "Tq75mF6pbGaYSITI";
-
 
 /**
  * Requests an authentication token from the SCOT portal.
@@ -441,16 +436,12 @@ function sendEmailViaSMTP(htmlContent, recipientEmail, subject, senderName, ccEm
     Logger.log("Sending email with Aruba provider");
     smtpServer = "smtps.aruba.it";
     port = 465;
-    username = "ordini@ilmassimodelbere.it";
-    password = "MarkSSS2020!";
   }
   else   if (provider === "TurboSMTP")
   {
     Logger.log("Sending email with TurboSMTP provider");
     smtpServer = "pro.turbo-smtp.com";
     port = 465;
-    username = "admin@ilmassimodelbere.it";
-    password = "MaxsMaxt014!";
   }
   else
   {
