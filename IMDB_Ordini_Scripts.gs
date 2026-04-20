@@ -2,8 +2,6 @@
 
 
 var scotBaseURL = "https://api.portalescotsrl.it";
-var scotUsername = "imdb";
-var scotPassword = "Tq75mF6pbGaYSITI";
 const inviaSpedizioni_DaPortale = false;
 
 /**
