@@ -1,15 +1,20 @@
+/**
+ * Reads a required Script Property. Throws if missing so callers fail fast.
+ * All secrets (API keys, passwords, tokens) must be stored as Script Properties
+ * via Project Settings > Script Properties, or via setScriptPropertyPrompt().
+ */
+function getScriptProp_(key) {
+  var value = PropertiesService.getScriptProperties().getProperty(key);
+  if (!value) throw new Error('Script Property mancante: ' + key);
+  return value;
+}
+
+// FattureInCloud — URL pubblico (non segreto)
 var FICUrl = "https://api-v2.fattureincloud.it";
-var FICCompanyID = "1294648";
-var FICBearer = "a/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyZWYiOiJET2Rja1RYS3Bzd2M0elN2cUhGdm1uNUNaNlJIcjd3VSJ9.1oQAGDpXjx2YsVwpCknBBcvMu9kqYRk1CYxbKrFPoCQ";
 
-// SCOT srl
-
-
+// SCOT srl — URL pubblici (non segreti)
 var prodScotBaseURL = "https://api.portalescotsrl.it";
 var testScotBaseURL = "https://testapi.portalescotsrl.it";
-var scotBaseURL;
-var scotUsername = "imdb";
-var scotPassword = "Tq75mF6pbGaYSITI";
 
 
 /**
@@ -19,22 +24,14 @@ var scotPassword = "Tq75mF6pbGaYSITI";
  * @param {string} password - The password credential.
  * @return {string|null} - The token if the request succeeds, otherwise null.
  */
-function getScotToken(test = false) 
+function getScotToken(test = false)
 {
-  // Replace with the correct base URL of the SCOT portal.
-  var endpoint = "/api/token/"; 
-  
-  if (test) 
-    scotBaseURL = testScotBaseURL;
-  else
-    scotBaseURL = prodScotBaseURL;
-  
-  var url = scotBaseURL + endpoint;
+  var baseURL = test ? testScotBaseURL : prodScotBaseURL;
+  var url = baseURL + "/api/token/";
 
-  // Build the payload with credentials.
   var payload = {
-    username: scotUsername,
-    password: scotPassword
+    username: getScriptProp_('SCOT_USERNAME'),
+    password: getScriptProp_('SCOT_PASSWORD')
   };
   
   var options = {
@@ -65,17 +62,13 @@ function getScotToken(test = false)
   }
 }
 
-var FICUrl = "https://api-v2.fattureincloud.it";
-var FICCompanyID = "1294648";
-var FICBearer = "a/eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJyZWYiOiJET2Rja1RYS3Bzd2M0elN2cUhGdm1uNUNaNlJIcjd3VSJ9.1oQAGDpXjx2YsVwpCknBBcvMu9kqYRk1CYxbKrFPoCQ";
-
 // This function makes the actual API call to create the invoice
-function createFICOrderInvoice(invoiceType, clientRagioneSociale, clientEntityType, clientType, clientNome, clientCognome, clientCodice, clientAddress, clientCity, clientCAP, clientProvincia, clientEmail, clientPhone, clientVatNumber, clientPEC, clientSDI, clientCodiceFiscale, clientNoteSpedizione, clientNoteCliente, invoiceDate, invoiceSubject, invoiceVisibleSubject, invoiceAmount, invoiceItems, showPaymentMethod, paymentID, paymentMethod, paymentEMethod, paymentNotes, paymentsItems, useGrossPrice = true) 
+function createFICOrderInvoice(invoiceType, clientRagioneSociale, clientEntityType, clientType, clientNome, clientCognome, clientCodice, clientAddress, clientCity, clientCAP, clientProvincia, clientEmail, clientPhone, clientVatNumber, clientPEC, clientSDI, clientCodiceFiscale, clientNoteSpedizione, clientNoteCliente, invoiceDate, invoiceSubject, invoiceVisibleSubject, invoiceAmount, invoiceItems, showPaymentMethod, paymentID, paymentMethod, paymentEMethod, paymentNotes, paymentsItems, useGrossPrice = true)
 {
-    var endpoint = "/c/" + FICCompanyID + "/issued_documents";
+    var endpoint = "/c/" + getScriptProp_('FIC_COMPANY_ID') + "/issued_documents";
     var headers = {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + FICBearer,
+      Authorization: "Bearer " + getScriptProp_('FIC_BEARER'),
     };
 
     var itemsList = mapInvoiceItems(invoiceItems);
@@ -182,12 +175,12 @@ function createFICOrderInvoice(invoiceType, clientRagioneSociale, clientEntityTy
 
 
 // This function makes the actual API call to create the invoice
-function createFICInvoice(invoiceType, clientRagioneSociale, clientEntityType, clientType, clientNome, clientCognome, clientCodice, clientAddress, clientCity, clientCAP, clientProvincia, clientEmail, clientPhone, clientVatNumber, clientPEC, clientSDI, clientCodiceFiscale, clientNoteSpedizione, clientNoteCliente, invoiceDate, invoiceSubject, invoiceVisibleSubject, invoiceAmount, clientNoteSaldo, clientDataSaldo, clientPaidAmount, invoiceDescription, paymentID, paymentMethod, paymentEMethod) 
+function createFICInvoice(invoiceType, clientRagioneSociale, clientEntityType, clientType, clientNome, clientCognome, clientCodice, clientAddress, clientCity, clientCAP, clientProvincia, clientEmail, clientPhone, clientVatNumber, clientPEC, clientSDI, clientCodiceFiscale, clientNoteSpedizione, clientNoteCliente, invoiceDate, invoiceSubject, invoiceVisibleSubject, invoiceAmount, clientNoteSaldo, clientDataSaldo, clientPaidAmount, invoiceDescription, paymentID, paymentMethod, paymentEMethod)
 {
-    var endpoint = "/c/" + FICCompanyID + "/issued_documents";
+    var endpoint = "/c/" + getScriptProp_('FIC_COMPANY_ID') + "/issued_documents";
     var headers = {
       "Content-Type": "application/json",
-      Authorization: "Bearer " + FICBearer,
+      Authorization: "Bearer " + getScriptProp_('FIC_BEARER'),
     };
 
     var body = 
@@ -442,7 +435,7 @@ function sendEmailViaSMTP(htmlContent, recipientEmail, subject, senderName, ccEm
     smtpServer = "smtps.aruba.it";
     port = 465;
     username = "ordini@ilmassimodelbere.it";
-    password = "MarkSSS2020!";
+    password = getScriptProp_('SMTP_ARUBA_PASSWORD');
   }
   else   if (provider === "TurboSMTP")
   {
@@ -450,7 +443,7 @@ function sendEmailViaSMTP(htmlContent, recipientEmail, subject, senderName, ccEm
     smtpServer = "pro.turbo-smtp.com";
     port = 465;
     username = "admin@ilmassimodelbere.it";
-    password = "MaxsMaxt014!";
+    password = getScriptProp_('SMTP_TURBOSMTP_PASSWORD');
   }
   else
   {
@@ -644,34 +637,21 @@ function getGiacenze(token, clientId) {
 // =======================
 // CONFIGURAZIONE MAUTIC
 // =======================
-const MAUTIC_BASE_URL      = 'https://www.ilmassimodelbere.it/Mautic'; // senza /api
-const MAUTIC_API_BASE_URL  = MAUTIC_BASE_URL + '/api';
-const MAUTIC_CLIENT_ID     = '3_2glqxy6xg7k0ck8sc0ooww4o4kk0ocwk4s0gwocswk44c4soc8';
-const MAUTIC_CLIENT_SECRET = '60b65bv4dlkwocokc44scc8kw48o0k84kgo48gcscokcswsog0';
+const MAUTIC_BASE_URL     = 'https://www.ilmassimodelbere.it/Mautic'; // senza /api
+const MAUTIC_API_BASE_URL = MAUTIC_BASE_URL + '/api';
 
 // =======================
 // SERVICE OAUTH2 MAUTIC
 // =======================
 function getMauticService() {
   return OAuth2.createService('Mautic')
-    // Endpoint OAuth2 di Mautic
     .setAuthorizationBaseUrl(MAUTIC_BASE_URL + '/oauth/v2/authorize')
     .setTokenUrl(MAUTIC_BASE_URL + '/oauth/v2/token')
-
-    // Credenziali del client (da Mautic)
-    .setClientId(MAUTIC_CLIENT_ID)
-    .setClientSecret(MAUTIC_CLIENT_SECRET)
-
-    // Callback function per gestire /usercallback
+    .setClientId(getScriptProp_('MAUTIC_CLIENT_ID'))
+    .setClientSecret(getScriptProp_('MAUTIC_CLIENT_SECRET'))
     .setCallbackFunction('mauticAuthCallback')
-
-    // Dove salvare token/refresh token
     .setPropertyStore(PropertiesService.getUserProperties())
-
-    // Mautic di solito non usa scope, ma la libreria vuole comunque una stringa
     .setScope('')
-
-    // Per sicurezza specifichiamo il tipo di response
     .setParam('response_type', 'code');
 }
 

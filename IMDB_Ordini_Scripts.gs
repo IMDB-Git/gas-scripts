@@ -1,55 +1,11 @@
-// SCOT srl
-
-
-var scotBaseURL = "https://api.portalescotsrl.it";
-var scotUsername = "imdb";
-var scotPassword = "Tq75mF6pbGaYSITI";
+// SCOT srl — URL pubblico (non segreto). Credenziali in Script Properties di CommonLibs.
+const SCOT_PROD_BASE_URL = "https://api.portalescotsrl.it";
 const inviaSpedizioni_DaPortale = false;
 
-/**
- * Requests an authentication token from the SCOT portal.
- *
- * @param {string} username - The username credential.
- * @param {string} password - The password credential.
- * @return {string|null} - The token if the request succeeds, otherwise null.
- */
-function getScotToken_(username, password) {
-  // Replace with the correct base URL of the SCOT portal.
-  var endpoint = "/api/token/"; 
-  var url = scotBaseURL + endpoint;
-  
-  // Build the payload with credentials.
-  var payload = {
-    username: username,
-    password: password
-  };
-  
-  var options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    muteHttpExceptions: true
-  };
-  
-  try {
-    var response = UrlFetchApp.fetch(url, options);
-    var code = response.getResponseCode();
-    var jsonResponse = JSON.parse(response.getContentText());
-    
-    if (code !== 200) {
-      Logger.log("Token request failed with error code: " + code);
-      if (jsonResponse.error) {
-        Logger.log("Error message: " + jsonResponse.error);
-      }
-      return null;
-    } else {
-      Logger.log("Token request successful. Token: " + jsonResponse.token);
-      return jsonResponse.token;
-    }
-  } catch (e) {
-    Logger.log("Exception during token request: " + e);
-    return null;
-  }
+function getScriptProp_(key) {
+  var value = PropertiesService.getScriptProperties().getProperty(key);
+  if (!value) throw new Error('Script Property mancante: ' + key);
+  return value;
 }
 
 
@@ -74,10 +30,10 @@ function getScotToken_(username, password) {
  * @return {Object|null}      L’oggetto JSON di risposta se HTTP 200, altrimenti null.
  */
 function scotOrdiniUscita_(orderId, clientId, header, rows, clienteNome, campagnaNome, files = null) {
-  var url = scotBaseURL + "/api/uscite/";
+  var url = SCOT_PROD_BASE_URL + "/api/uscite/";
   
   // 1) recupera il token
-  var token = getScotToken_(scotUsername, scotPassword);
+  var token = IMDBCommonLibs.getScotToken();
 
   if (!token) { 
     Logger.log("Impossibile ottenere il token"); 
@@ -135,7 +91,7 @@ function scotOrdiniUscita_(orderId, clientId, header, rows, clienteNome, campagn
 /* ========== Esempio di utilizzo ========== */
 function testscotOrdiniUscita_() {
   // 1) recupera il token
-  var token = getScotToken_(scotUsername, scotPassword);
+  var token = IMDBCommonLibs.getScotToken();
 
   if (!token) { 
     Logger.log("Impossibile ottenere il token"); 
@@ -204,13 +160,13 @@ function testscotOrdiniUscita_() {
  *     ]
  *   }
  *
- * @param {string} token    Bearer token ottenuto da getScotToken_().
+ * @param {string} token    Bearer token ottenuto da IMDBCommonLibs.getScotToken().
  * @param {string} orderId  order_id (max 10 caratteri).
  * @param {string} clientId client ID (max 5 caratteri).
  * @return {Object|null}    L’oggetto JSON di risposta se HTTP 200, altrimenti null.
  */
 function scotOrdiniUscita_Stato_(token, orderId, clientId) {
-  var url = scotBaseURL + "/api/uscite/stato/";
+  var url = SCOT_PROD_BASE_URL + "/api/uscite/stato/";
   
   // Costruisci il body della richiesta
   var payload = {
@@ -249,7 +205,7 @@ function scotOrdiniUscita_Stato_(token, orderId, clientId) {
 /* ========== Esempio di utilizzo ========== */
 function testscotOrdiniUscita_Stato_() {
   // 1) recupera il token
-  var token = getScotToken_(scotUsername, scotPassword);
+  var token = IMDBCommonLibs.getScotToken();
   if (!token) {
     Logger.log("Token non ottenuto");
     return;
@@ -2858,9 +2814,8 @@ function testsendWhatsAppCloudTemplateMessage_ ()
 
 function sendWhatsAppCloudTemplateMessage_(to, templateName, languageCode, templateParameters) {
 
-  // Replace these with your own credentials.
-  var accessToken = 'EAAGkqJyudNsBOxCxoEvfwPqXZBF1asDuZCJAxkHktqz2o9NWuelJhkTaCGdhxodQIZA8pcxvCZCzR0xY00MwdeNwBZCDDuXAiWE1BDN5ITI1klZABfrKYDY9fvO5Nda07YFoGPt0hu9gQ5r6HlKdB0RLLptMiQxPPz7gTmcIl9QnfE1ZCYLRNKusYgr0metLHZA4SQZDZD';
-  var phoneNumberId = '620172421177804'; // This is provided by Meta in your WhatsApp Business setup
+  var accessToken = getScriptProp_('WHATSAPP_ACCESS_TOKEN');
+  var phoneNumberId = getScriptProp_('WHATSAPP_PHONE_NUMBER_ID');
   
   // Construct the API endpoint URL.
   var url = 'https://graph.facebook.com/v22.0/' + phoneNumberId + '/messages';
@@ -4063,7 +4018,7 @@ function checkSpedizioneCorrente() {
     client: 'MDB'
   };
 
-  const url = IMDBCommonLibs.scotBaseURL + "/api/uscite/stato/";
+  const url = SCOT_PROD_BASE_URL + "/api/uscite/stato/";
 
   const options = {
     method: "post",
