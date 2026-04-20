@@ -4288,13 +4288,13 @@ function metaCapiSendFromSelectedRows()
 
       // ✅ Lead ID: Mautic meta_id
       const metaIdRaw = IMDBCommonLibs.getMauticFieldNormalizedSafe(contact, ["meta_id"]);
-      const metaLeadId = normalizeMetaLeadId_(metaIdRaw);
+      const metaLeadId = IMDBCommonLibs.normalizeMetaLeadId(metaIdRaw);
       if (metaLeadId) customer.leadId = metaLeadId;
 
       // ✅ CF -> birthdate + gender (se c’è colonna e valore valido)
       if (codiceFiscale) 
       {
-        const cfInfo = parseCodiceFiscaleBirthSex_(codiceFiscale);
+        const cfInfo = IMDBCommonLibs.parseCodiceFiscaleBirthSex(codiceFiscale);
         if (cfInfo) 
         {
           customer.birthDate = cfInfo.birthDateYYYYMMDD; // es. "19840209"
@@ -4303,10 +4303,10 @@ function metaCapiSendFromSelectedRows()
       }
 
       // 3) valore
-      const value = getNumericValueFromCell_(currentSheet, rowIndex, valueCol);
+      const value = IMDBCommonLibs.getNumericValueFromCell(currentSheet, rowIndex, valueCol);
 
             // ✅ event time dalla colonna Mail "Stato Pagamento"
-      let eventTimeSec = getEventTimeSecFromCell_(currentSheet, rowIndex, dataPagamentoCol);
+      let eventTimeSec = IMDBCommonLibs.getEventTimeSecFromCell(currentSheet, rowIndex, dataPagamentoCol);
 
       if (!eventTimeSec)
       {
@@ -4335,7 +4335,7 @@ function metaCapiSendFromSelectedRows()
         leadEventSource: "chatwoot",
         currency: "EUR",
         eventTimeSec: eventTimeSec,
-        eventId: buildEventIdFromDateAndMauticId_(mauticId, 6)
+        eventId: IMDBCommonLibs.buildEventIdFromDateAndMauticId(mauticId, 6)
       };
 
       // 4) invio
@@ -4343,7 +4343,7 @@ function metaCapiSendFromSelectedRows()
       Logger.log(`Riga ${rowIndex} ok: ${JSON.stringify(res)}`);
 
       // 5) marca invio
-      metaCell.setValue(formatTodayDDMMYYYY_());
+      metaCell.setValue(IMDBCommonLibs.formatTodayDDMMYYYY());
       ok++;
 
     } catch (e) {
@@ -4370,307 +4370,6 @@ function metaCapiSendFromSelectedRows()
     (errors.length ? `\n\nDettagli (prime 10):\n- ${errors.slice(0, 10).join('\n- ')}` : '');
 
   ui.alert(summary);
-}
-
-
-/**
- * Converte la cella data in unix seconds.
- * Supporta:
- * - Date vera di Sheets
- * - stringhe tipo "dd/MM/yyyy" o "dd/MM/yyyy HH:mm"
- */
-function getEventTimeSecFromCell_(sheet, rowIndex, colIndex) {
-  const cell = sheet.getRange(rowIndex, colIndex);
-  const v = cell.getValue();
-
-  let d = null;
-
-  if (v instanceof Date && !isNaN(v.getTime())) {
-    d = v;
-  } else {
-    const s = String(cell.getDisplayValue() || '').substring(0, 10);
-    if (!s) return null;
-
-    const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?$/);
-    if (m) {
-      const dd = Number(m[1]);
-      const mm = Number(m[2]) - 1;
-      const yyyy = Number(m[3].length === 2 ? ('20' + m[3]) : m[3]);
-      const hh = m[4] ? Number(m[4]) : 0;
-      const mi = m[5] ? Number(m[5]) : 0;
-      const ss = m[6] ? Number(m[6]) : 0;
-      d = new Date(yyyy, mm, dd, hh, mi, ss);
-    } else {
-      const ts = Date.parse(s);
-      if (!isNaN(ts)) d = new Date(ts);
-    }
-  }
-
-  if (!d) return null;
-  return Math.floor(d.getTime() / 1000);
-}
-
-
-/**
- * Estrae data di nascita e sesso dal Codice Fiscale italiano.
- * Ritorna:
- *  - { birthDateYYYYMMDD: "YYYYMMDD", gender: "m"|"f" }
- * oppure null se non valido.
- *
- * Note:
- * - Supporta CF standard (non gestisce omocodia completa, ma di solito basta).
- * - Inferenza secolo: 00..(annoCorrente%100) => 2000, altrimenti 1900.
- */
-function parseCodiceFiscaleBirthSex_(cf) {
-  if (!cf) return null;
-  const s = String(cf).trim().toUpperCase();
-  if (!s) return null;
-
-  // basic sanity
-  if (!/^[A-Z0-9]{16}$/.test(s)) return null;
-
-  const yy = s.substring(6, 8);
-  const mChar = s.substring(8, 9);
-  const ddRaw = s.substring(9, 11);
-
-  const year2 = parseInt(yy, 10);
-  const dayNum = parseInt(ddRaw, 10);
-  if (!isFinite(year2) || !isFinite(dayNum)) return null;
-
-  const monthMap = {
-    A: 1, B: 2, C: 3, D: 4, E: 5, H: 6,
-    L: 7, M: 8, P: 9, R: 10, S: 11, T: 12
-  };
-  const month = monthMap[mChar];
-  if (!month) return null;
-
-  let gender = "m";
-  let day = dayNum;
-
-  if (dayNum >= 41 && dayNum <= 71) {
-    gender = "f";
-    day = dayNum - 40;
-  }
-
-  if (day < 1 || day > 31) return null;
-
-  const now = new Date();
-  const currentYY = now.getFullYear() % 100;
-  const fullYear = (year2 <= currentYY) ? (2000 + year2) : (1900 + year2);
-
-  // valida data (evita 31/02 ecc.)
-  const d = new Date(fullYear, month - 1, day);
-  if (d.getFullYear() !== fullYear || (d.getMonth() + 1) !== month || d.getDate() !== day) return null;
-
-  const birthDateYYYYMMDD =
-    String(fullYear) +
-    String(month).padStart(2, '0') +
-    String(day).padStart(2, '0');
-
-  return { birthDateYYYYMMDD, gender };
-}
-
-
-function buildEventIdFromDateAndMauticId_(mauticId, padLength) {
-  if (!mauticId) return null;
-
-  const tz = Session.getScriptTimeZone();
-  const today = Utilities.formatDate(new Date(), tz, "yyyyMMdd");
-
-  const idNum = String(mauticId).replace(/\D/g, '');
-  if (!idNum) return null;
-
-  const padded = idNum.padStart(padLength || 6, '0'); // default 10 cifre
-
-  return today + padded;
-}
-
-/* =========================================================
- * Helpers: date dd/MM/yyyy
- * ========================================================= */
-function formatTodayDDMMYYYY_() {
-  const tz = Session.getScriptTimeZone(); // di solito Europe/Rome
-  return Utilities.formatDate(new Date(), tz, "dd/MM/yyyy");
-}
-
-
-/* =========================================================
- * Helpers: Meta lead id normalization (meta_id -> "l:123...")
- * ========================================================= */
-
-function normalizeMetaLeadId_(raw) {
-  if (raw === null || raw === undefined) return "";
-  let s = String(raw).trim();
-  if (!s) return "";
-
-  s = s.replace(/\s+/g, "");
-
-  let m = s.match(/^l:(\d{10,20})$/i);
-  if (m) return "l:" + m[1];
-
-  m = s.match(/^(\d{10,20})$/);
-  if (m) return "l:" + m[1];
-
-  m = s.match(/l:(\d{10,20})/i);
-  if (m) return "l:" + m[1];
-
-  m = s.match(/(\d{10,20})/);
-  if (m) return "l:" + m[1];
-
-  return "";
-}
-
-function getNumericValueFromCell_(sheet, rowIndex, colIndex) {
-  if (!colIndex) return null;
-
-  const raw = sheet.getRange(rowIndex, colIndex).getDisplayValue();
-  if (!raw) return null;
-
-  let s = String(raw).trim();
-  if (!s) return null;
-
-  // rimuovi simboli valuta e spazi
-  s = s.replace(/€/g, '').replace(/\s/g, '');
-
-  // caso 1.234,56
-  if (s.indexOf('.') !== -1 && s.indexOf(',') !== -1) {
-    s = s.replace(/\./g, '').replace(',', '.');
-  } else {
-    // caso 123,45
-    s = s.replace(',', '.');
-  }
-
-  // lascia solo cifre, punto e meno
-  s = s.replace(/[^0-9.\-]/g, '');
-  if (!s) return null;
-
-  const num = Number(s);
-  if (!isFinite(num)) return null;
-
-  return Math.round(num * 100) / 100; // 2 decimali
-}
-
-// IMDB Web App — Campagne/Clienti (single-file bundle)
-
-
-// IMDB Web App — Campagne/Clienti (single-file bundle)
-// Incolla TUTTO in Apps Script (solo Code.gs, nessun file HTML)
-
-/***************
- * IMPORTANT: Compatibilità
- * - Niente nullish coalescing (??)
- * - Niente optional chaining (?.)
- ***************/
-
-var APP_CFG = {
-  headerRow: 33,
-  firstClientRow: 34,
-  colA: 1,
-  metaRows: { code: 1, producer: 2, description: 3 }
-};
-
-var ANCHORS = {
-  idCliente: "ID Cliente",
-  cognome: "Cognome",
-  nome: "Nome",
-  vip: "VIP",
-  email: "Email",
-  telefono: "Telefono",
-  codiceFiscale: "Codice Fiscale",
-  ad: "AD",
-  statoPagamento: "Stato Pagamento",
-  note: "Note",
-
-  ordineBaseFields: [
-    "Prezzo",
-    "Spedizione",
-    "Voucher",
-    "Saldo Logistica",
-    "Totale",
-    "Totale IMDB",
-    "CDV Puro",
-    "Ricarico Reale",
-    "Ricarico puro"
-  ],
-
-  ordineRangeStart: "Anno nascita",
-  ordineRangeEnd: "Fattura Acconto VIP",
-
-  bottleLabelInRow1: "Codice bottiglia",
-  bottleStartOffset: 2,
-
-  formulaCopyStartHeader: "Totale",
-  formulaCopyEndHeader: "Bottiglie"
-};
-
-/* =========================
- * LOG buffer (server-side)
- * ========================= */
-
-var LOG_CFG = {
-  propKey: "IMDB_WEBAPP_LOG",
-  maxChars: 45000
-};
-
-function logNowIso_() {
-  return new Date().toISOString();
-}
-
-function logAppend_(msg) {
-  var s = String(msg == null ? "" : msg);
-  try { Logger.log(s); } catch (e) {}
-
-  var props = PropertiesService.getScriptProperties();
-  var prev = String(props.getProperty(LOG_CFG.propKey) || "");
-  var line = "[" + logNowIso_() + "] " + s;
-  var next = prev ? (prev + "\n" + line) : line;
-
-  if (next.length > LOG_CFG.maxChars) {
-    next = next.slice(next.length - LOG_CFG.maxChars);
-  }
-
-  props.setProperty(LOG_CFG.propKey, next);
-}
-
-function logClear_() {
-  PropertiesService.getScriptProperties().deleteProperty(LOG_CFG.propKey);
-}
-
-function logGet_() {
-  return String(PropertiesService.getScriptProperties().getProperty(LOG_CFG.propKey) || "");
-}
-
-function logError_(context, err, extraObj) {
-  var parts = [];
-  parts.push("ERROR");
-  if (context) parts.push("ctx=" + context);
-
-  if (err) {
-    if (err.stack) parts.push("stack=" + err.stack);
-    else if (err.message) parts.push("message=" + err.message);
-    else parts.push("err=" + String(err));
-  }
-
-  if (extraObj) {
-    try {
-      parts.push("extra=" + JSON.stringify(extraObj));
-    } catch (e) {
-      parts.push("extra_raw=" + String(extraObj));
-    }
-  }
-
-  logAppend_(parts.join(" | "));
-}
-
-function safe_(ctx, fn) {
-  try {
-    var out = fn();
-    if (out && typeof out === "object" && Object.prototype.hasOwnProperty.call(out, "ok")) return out;
-    return { ok: true, data: out };
-  } catch (e) {
-    logError_(ctx, e, null);
-    return { ok: false, error: (e && e.message) ? e.message : String(e) };
-  }
 }
 
 function syncStripeSuccessfulPayments()
