@@ -2,12 +2,6 @@
 const SCOT_PROD_BASE_URL = "https://api.portalescotsrl.it";
 const inviaSpedizioni_DaPortale = false;
 
-function getScriptProp_(key) {
-  var value = PropertiesService.getScriptProperties().getProperty(key);
-  if (!value) throw new Error('Script Property mancante: ' + key);
-  return value;
-}
-
 
 /**
  * Invia un ordine in uscita al portale SCOT (/api/uscite/).
@@ -559,7 +553,7 @@ function creaRiepilogo() {
         "campagna " + currentSheet.getName()
       ];
 
-      var waResponse = sendWhatsAppCloudTemplateMessage_("39" + telefonoFormatted, "20250411_imdb_order_received_v1_0", "it", templateOptions);
+      var waResponse = IMDBCommonLibs.sendWhatsAppCloudTemplateMessage("39" + telefonoFormatted, "20250411_imdb_order_received_v1_0", "it", templateOptions);
       var waResponseObj = JSON.parse(waResponse);
 
       if (waResponseObj.error) 
@@ -2246,7 +2240,7 @@ function notificaSpedizioni()
         "telefono " + payload.telefonoFormatted,
         "note " + payload.noteSpedizione];//"note " + destinatario[12] + " - " + telefonoFormatted];
 
-        var waResponse = sendWhatsAppCloudTemplateMessage_("39" + payload.telefonoFormatted, "20260206_imdb_dati_di_spedizione_v_1_2", "it", templateOptions);
+        var waResponse = IMDBCommonLibs.sendWhatsAppCloudTemplateMessage("39" + payload.telefonoFormatted, "20260206_imdb_dati_di_spedizione_v_1_2", "it", templateOptions);
 
         // Converte la risposta JSON in un oggetto
         var waResponseObj = JSON.parse(waResponse);
@@ -2794,104 +2788,6 @@ function listInvoices_() {
 
 
 
-function testCreateProforma ()
-{
-  IMDBCommonLibs.createFICInvoice ("Pipppo Pluto", "client", "person", "Massimo", "Bombino", "", "Via di qui, 32", "Milano", "20123", "PV", "ordini@ilmassimodelbere.it", "+39-348-2639796", "BMBMMSAMMM", "pec@pec.it", "0000000", "BMBMMSAMMM", "Spedier subito", "", "IMDB Acquisto", "IMDB - Acconto per merce da consegnare", "497", "Fattura saldata con pagamento Stripe del ","2025-04-26",  "497", "IMDB - Acconto per merce da consegnare (rif. IMDB VIP Club Diamond)");
-}
-
-function testsendWhatsAppCloudTemplateMessage_ ()
-{
-  sendWhatsAppCloudTemplateMessage_("393482639796", "2025_imdb_anteprima_borgogna_2026_v_1", "it", ["Max"]);
-}
-
-/** 
- * @param {string} to - The recipient's phone number in international format (e.g., "393482639796" without the plus sign).
- * @param {string} templateName - The name of the pre-approved template (e.g., "hello_world").
- * @param {string} languageCode - The language code (e.g., "en_US").
- * @param {Array} templateParameters - Optional array of text parameters for the template body.
- * @return {string} The API response.
- */
-
-function sendWhatsAppCloudTemplateMessage_(to, templateName, languageCode, templateParameters) {
-
-  var accessToken = getScriptProp_('WHATSAPP_ACCESS_TOKEN');
-  var phoneNumberId = getScriptProp_('WHATSAPP_PHONE_NUMBER_ID');
-  
-  // Construct the API endpoint URL.
-  var url = 'https://graph.facebook.com/v22.0/' + phoneNumberId + '/messages';
-
-  // Convert the array of "parameterName parameterValue" strings into the proper format.
-
-  if (templateParameters)
-  {
-    var paramsArray = templateParameters.map(function(paramStr) {
-      // Split the string on whitespace.
-      var parts = paramStr.split(' ');
-      var paramName = parts.shift(); // Take the first part as the parameter name.
-      var paramValue = parts.join(' '); // The rest is the parameter value.
-      return {
-        type: "text",
-        parameter_name: paramName,
-        text: paramValue
-      };
-    });
-
-    // Build the payload.
-    var payload = {
-      messaging_product: "whatsapp",
-      to: to,
-      type: "template",
-      template: {
-        name: templateName,
-        language: {
-          code: languageCode
-        },
-        components: [{
-          type: "body",
-          parameters: paramsArray
-        }]
-      }
-    };
-  }  
-  else
-  {
-
-    // Build the payload.
-    var payload = {
-      messaging_product: "whatsapp",
-      to: to,
-      type: "template",
-      template: {
-        name: templateName,
-        language: {
-          code: languageCode
-        }
-      }
-    };
-  }
-
-  Logger.log("Payload: " + JSON.stringify(payload));
-  
-  var options = {
-    method: "post",
-    contentType: "application/json",
-    payload: JSON.stringify(payload),
-    headers: {
-      "Authorization": "Bearer " + accessToken
-    },
-    muteHttpExceptions: true
-  };
-  
-  try {
-    var response = UrlFetchApp.fetch(url, options);
-    Logger.log("WhatsApp API response: " + response.getContentText());
-    return response;
-  } catch (e) {
-    Logger.log("Error sending WhatsApp message: " + e);
-    //throw e;
-    return response;
-  }
-}
 
 
 function createOrderInvoice()
@@ -4250,53 +4146,6 @@ function fillMauticCustomerDataOBSOLETE() {
 */
 
 /**
- * Helper UI: dato un array di customerData (risposta /contacts/{id}),
- * fa scegliere all'utente quale contatto usare.
- *
- * Ritorna l'elemento scelto (customerData) oppure null se annullato.
- */
-function pickMauticContactFromArray_(ui, customerDataArray, keyLabel) {
-  const n = customerDataArray.length;
-
-  let msg = 'Sono stati trovati ' + n + ' contatti per "' + keyLabel + '":\n\n';
-
-  for (let i = 0; i < n; i++) {
-    const cd = customerDataArray[i];
-    const contact = (cd && cd.contact) ? cd.contact : (cd || {});
-
-    const firstName = IMDBCommonLibs.getMauticFieldNormalized(contact, 'firstname') || '';
-    const lastName  = IMDBCommonLibs.getMauticFieldNormalized(contact, 'lastname')  || '';
-    const email     = IMDBCommonLibs.getMauticFieldNormalized(contact, 'email')     || '';
-
-    const fields = contact.fields || {};
-    const all    = fields.all || {};
-    const id     = (typeof contact.id !== 'undefined' && contact.id !== null)
-      ? contact.id
-      : (typeof all.id !== 'undefined' ? all.id : '');
-
-    msg += (i + 1) + ') ID ' + id + ' - ' + (firstName + ' ' + lastName).trim() +
-           (email ? ' <' + email + '>' : '') + '\n';
-  }
-
-  msg += '\nInserisci il numero del contatto da usare (1-' + n + '), oppure 0 per annullare:';
-
-  const promptResult = ui.prompt('Seleziona contatto Mautic', msg, ui.ButtonSet.OK_CANCEL);
-  const button = promptResult.getSelectedButton();
-  if (button !== ui.Button.OK) return null;
-
-  const choiceStr = String(promptResult.getResponseText()).trim();
-  const choice = parseInt(choiceStr, 10);
-
-  if (isNaN(choice) || choice < 0 || choice > n) {
-    throw new Error('Scelta non valida: "' + choiceStr + '". Operazione annullata.');
-  }
-  if (choice === 0) return null;
-
-  return customerDataArray[choice - 1];
-}
-
-
-/**
  * SCRIPT 1: CALCOLO COSTI IMPORT FRANCIA
  * Calcola il costo logistico progressivo per l'importazione.
  */
@@ -4769,36 +4618,6 @@ function fillMauticCustomerData() {
   if (errorMessages.length) {
     ui.alert('Completato con alcuni errori', errorMessages.join('\n'), ui.ButtonSet.OK);
   }
-}
-
-/* Esempio d'uso */
-
-function metaCapiExample() {
-  const customer = {
-    leadId: "l:1234567890123456", // da Meta Lead Ads, se disponibile
-    email: "Mario.Rossi@example.com",
-    phone: "+39 333 123 4567",
-    firstName: "Mario",
-    lastName: "Ròssi",
-    city: "Roma",
-    state: "RM",
-    zip: "00100",
-    country: "IT",
-    externalId: "crm-contact-98765" // tuo ID interno (consigliato)
-  };
-
-  const res = IMDBCommonLibs.metaCapiSend(
-    "Purchase",
-    customer,
-    129.90,
-    {
-      actionSource: "system_generated", // WhatsApp/Chatwoot
-      messagingChannel: "whatsapp",
-      testEventCode: "TEST19291" // opzionale
-    }
-  );
-
-  Logger.log(JSON.stringify(res, null, 2));
 }
 
 /**
@@ -6486,12 +6305,12 @@ function verificaPagamentiOrdiniSelezionati()
   righeSelezionate.forEach(
     function(row)
     {
-      var email = normalizeString_(sheetOrdini.getRange(row, headersOrdini["Mail"]).getDisplayValue());
-      var cognome = normalizeString_(sheetOrdini.getRange(row, headersOrdini["Cognome"]).getDisplayValue());
-      var nome = normalizeString_(sheetOrdini.getRange(row, headersOrdini["Nome"]).getDisplayValue());
-      var note = normalizeString_(sheetOrdini.getRange(row, headersOrdini["Note"]).getDisplayValue());
-      var statoPagamento = normalizeString_(sheetOrdini.getRange(row, headersOrdini["Stato pagamento"]).getDisplayValue());
-      var fatturaOrdine = normalizeString_(sheetOrdini.getRange(row, headersOrdini["Fattura"]).getDisplayValue());
+      var email = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Mail"]).getDisplayValue());
+      var cognome = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Cognome"]).getDisplayValue());
+      var nome = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Nome"]).getDisplayValue());
+      var note = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Note"]).getDisplayValue());
+      var statoPagamento = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Stato pagamento"]).getDisplayValue());
+      var fatturaOrdine = IMDBCommonLibs.normalizeString(sheetOrdini.getRange(row, headersOrdini["Fattura"]).getDisplayValue());
       var totaleDisplay = sheetOrdini.getRange(row, headersOrdini["Totale"]).getDisplayValue();
       var totaleOrdine = normalizeAmount_(sheetOrdini.getRange(row, headersOrdini["Totale"]).getValue());
 
@@ -6797,10 +6616,6 @@ function normalizeHeader_(value)
   return String(value || "").trim();
 }
 
-function normalizeString_(value)
-{
-  return String(value || "").trim();
-}
 
 function normalizeAmount_(value)
 {
@@ -7070,7 +6885,7 @@ function findGenericPaymentMatch_(cfg)
         return;
       }
 
-      var customerField = normalizeString_(row[headers[cfg.customerHeader] - 1]);
+      var customerField = IMDBCommonLibs.normalizeString(row[headers[cfg.customerHeader] - 1]);
       var dataMovimento = normalizeDateString_(row[headers[cfg.dateHeader] - 1]);
 
       var emailMatch = false;
@@ -7104,7 +6919,7 @@ function findGenericPaymentMatch_(cfg)
         partialReason = "Importo e cliente coerenti, data diversa";
       }
 
-      var existingFattura = normalizeString_(row[headers["Fattura"] - 1]);
+      var existingFattura = IMDBCommonLibs.normalizeString(row[headers["Fattura"] - 1]);
       var fatturaConflict = false;
 
       if (existingFattura)
@@ -7115,7 +6930,7 @@ function findGenericPaymentMatch_(cfg)
         }
       }
 
-      var existingSpedizione = normalizeString_(row[headers["Spedizione"] - 1]);
+      var existingSpedizione = IMDBCommonLibs.normalizeString(row[headers["Spedizione"] - 1]);
       var score = 0;
 
       if (emailMatch)
@@ -7790,33 +7605,4 @@ function getExistingDescrizioneImportoKeys_(sheet, headerMap, headerRow)
   return keys;
 }
 
-function getOrCreateHeaderMap_(sheet, headerRow, requiredHeaders)
-{
-  var lastCol = Math.max(sheet.getLastColumn(), 1);
-  var headers = sheet.getRange(headerRow, 1, 1, lastCol).getDisplayValues()[0];
-  var map = {};
 
-  for (var c = 0; c < headers.length; c++)
-  {
-    var h = String(headers[c] || "").trim();
-
-    if (h)
-    {
-      map[h] = c + 1;
-    }
-  }
-
-  requiredHeaders.forEach(
-    function(headerName)
-    {
-      if (!map[headerName])
-      {
-        lastCol++;
-        sheet.getRange(headerRow, lastCol).setValue(headerName);
-        map[headerName] = lastCol;
-      }
-    }
-  );
-
-  return map;
-}

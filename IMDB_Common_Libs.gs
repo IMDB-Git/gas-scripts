@@ -499,7 +499,7 @@ function sendEmailViaSMTP(htmlContent, recipientEmail, subject, senderName, ccEm
   }
 }
 
-function testCreateProforma ()
+function testCreateProforma_ ()
 {
 createFICInvoice ("Pipppo Pluto", "client", "person", "Massimo", "Bombino", "", "Via di qui, 32", "Milano", "20123", "PV", "ordini@ilmassimodelbere.it", "+39-348-2639796", "02948720186", "pec@pec.it", "0000000", "BMBMSM70L14F205Y", "Spedire subito", "Ottimo cliente", "IMDB Acquisto", "IMDB - Acconto per merce da consegnare", "497", "Fattura saldata con pagamento Stripe del ","2025-04-26",  "497", "IMDB - Acconto per merce da consegnare (rif. IMDB VIP Club Diamond)");
 //  createFICInvoice ("", "client", "person", "", "", "2443", "", "", "", "", "", "", "", "", "", "", "", "", "IMDB Acquisto", "IMDB - Acconto per merce da consegnare", "497", "Fattura saldata con pagamento Stripe del ","2025-04-26",  "497", "IMDB - Acconto per merce da consegnare (rif. IMDB VIP Club Diamond)");
@@ -991,7 +991,7 @@ function metaCapiSend(status, customer, value, options) {
 /**
  * Esempio d'uso
  */
-function metaCapiExample() {
+function metaCapiExample_() {
   const customer = {
     leadId: "l:1234567890123456", // da Meta Lead Ads, se disponibile
     email: "Mario.Rossi@example.com",
@@ -1625,6 +1625,10 @@ function normText(s) {
   return String(s || "").trim().toLowerCase();
 }
 
+function normalizeString(value) {
+  return String(value || "").trim();
+}
+
 function normPhone(s) {
   var x = String(s || "").trim();
   if (!x) return "";
@@ -1769,4 +1773,99 @@ function extractMauticCandidates(raw) {
   if (typeof raw === "object") return [raw];
 
   return [];
+}
+
+
+function testsendWhatsAppCloudTemplateMessage_ ()
+{
+  sendWhatsAppCloudTemplateMessage("393482639796", "2025_imdb_anteprima_borgogna_2026_v_1", "it", ["Max"]);
+}
+
+/**
+ * @param {string} to - The recipient's phone number in international format (e.g., "393482639796" without the plus sign).
+ * @param {string} templateName - The name of the pre-approved template (e.g., "hello_world").
+ * @param {string} languageCode - The language code (e.g., "en_US").
+ * @param {Array} templateParameters - Optional array of text parameters for the template body.
+ * @return {string} The API response.
+ */
+
+function sendWhatsAppCloudTemplateMessage(to, templateName, languageCode, templateParameters) {
+
+  var accessToken = getScriptProp_('WHATSAPP_ACCESS_TOKEN');
+  var phoneNumberId = getScriptProp_('WHATSAPP_PHONE_NUMBER_ID');
+
+  // Construct the API endpoint URL.
+  var url = 'https://graph.facebook.com/v22.0/' + phoneNumberId + '/messages';
+
+  // Convert the array of "parameterName parameterValue" strings into the proper format.
+
+  if (templateParameters)
+  {
+    var paramsArray = templateParameters.map(function(paramStr) {
+      // Split the string on whitespace.
+      var parts = paramStr.split(' ');
+      var paramName = parts.shift(); // Take the first part as the parameter name.
+      var paramValue = parts.join(' '); // The rest is the parameter value.
+      return {
+        type: "text",
+        parameter_name: paramName,
+        text: paramValue
+      };
+    });
+
+    // Build the payload.
+    var payload = {
+      messaging_product: "whatsapp",
+      to: to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: {
+          code: languageCode
+        },
+        components: [{
+          type: "body",
+          parameters: paramsArray
+        }]
+      }
+    };
+  }
+  else
+  {
+
+    // Build the payload.
+    var payload = {
+      messaging_product: "whatsapp",
+      to: to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: {
+          code: languageCode
+        }
+      }
+    };
+  }
+
+  Logger.log("Payload: " + JSON.stringify(payload));
+
+  var options = {
+    method: "post",
+    contentType: "application/json",
+    payload: JSON.stringify(payload),
+    headers: {
+      "Authorization": "Bearer " + accessToken
+    },
+    muteHttpExceptions: true
+  };
+
+  try {
+    var response = UrlFetchApp.fetch(url, options);
+    Logger.log("WhatsApp API response: " + response.getContentText());
+    return response;
+  } catch (e) {
+    Logger.log("Error sending WhatsApp message: " + e);
+    //throw e;
+    return response;
+  }
 }
