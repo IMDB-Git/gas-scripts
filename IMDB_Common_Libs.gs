@@ -871,6 +871,802 @@ function getCustomDateCode() {
 
 
 
+// ===== Stripe helper functions (moved from IMDB_Ordini_Scripts) =====
+
+function resetStripeLastCreated_()
+{
+  PropertiesService.getScriptProperties().deleteProperty('STRIPE_LAST_CREATED_UTC');
+  Logger.log('Property STRIPE_LAST_CREATED_UTC azzerata');
+}
+
+function setStripeStartDate_()
+{
+  PropertiesService.getScriptProperties().setProperty('STRIPE_START_DATE', '01/01/2026');
+  Logger.log('Property STRIPE_START_DATE impostata');
+}
+
+function buildStripeChargesUrl(config, props, startingAfter)
+{
+  var lastCreated = Number(props.getProperty(config.lastCreatedProperty) || 0);
+  var startDateStr = String(props.getProperty(config.startDateProperty) || '').trim();
+  var createdGte = lastCreated;
+
+  if (!createdGte)
+  {
+    if (!startDateStr)
+    {
+      throw new Error('Script property ' + config.startDateProperty + ' mancante (formato dd/MM/yyyy)');
+    }
+
+    createdGte = parseDdMmYyyyToUnixStartOfDay_(startDateStr);
+  }
+
+  var params = [];
+  params.push('limit=' + encodeURIComponent(String(config.pageLimit)));
+  params.push('created[gte]=' + encodeURIComponent(String(createdGte)));
+  params.push('expand[]=' + encodeURIComponent('data.balance_transaction'));
+  params.push('expand[]=' + encodeURIComponent('data.customer'));
+
+  if (startingAfter)
+  {
+    params.push('starting_after=' + encodeURIComponent(startingAfter));
+  }
+
+  return config.stripeBaseUrl + '/charges?' + params.join('&');
+}
+
+function stripeGetJson(url, secretKey)
+{
+  var response = UrlFetchApp.fetch(url,
+  {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers:
+    {
+      Authorization: 'Bearer ' + secretKey
+    }
+  });
+
+  var code = response.getResponseCode();
+  var text = response.getContentText();
+
+  if (code < 200 || code >= 300)
+  {
+    throw new Error('Stripe API error HTTP ' + code + ': ' + text);
+  }
+
+  return JSON.parse(text);
+}
+
+function buildStripeRow(charge)
+{
+  var balanceTx = getExpandedObject_(charge.balance_transaction);
+  var customerInfo = getCustomerInfoFromCharge_(charge);
+
+  var amount = centsToAmount_(charge.amount, charge.currency);
+  var amountRefunded = centsToAmount_(charge.amount_refunded, charge.currency);
+  var convertedCurrency = balanceTx ? String(balanceTx.currency || '').toUpperCase() : '';
+  var convertedAmount = balanceTx ? centsToAmount_(balanceTx.amount, balanceTx.currency) : '';
+  var convertedAmountRefunded = getConvertedRefundedAmount_(charge, balanceTx);
+  var fee = balanceTx ? centsToAmount_(balanceTx.fee, balanceTx.currency) : '';
+  var taxesOnFee = balanceTx ? getTaxesOnFee_(balanceTx) : '';
+  var refundedDateUtc = getRefundedDateUtc_(charge);
+  var declineReason = getDeclineReason_(charge);
+  var statementDescriptor = String(charge.statement_descriptor || charge.calculated_statement_descriptor || '').trim();
+  var sellerMessage = String((charge.outcome && charge.outcome.seller_message) || '').trim();
+  var cardId = getCardId_(charge);
+
+  return [
+    String(charge.id || ''),
+    formatUnixUtc_(charge.created),
+    amount,
+    amountRefunded,
+    String(charge.currency || '').toUpperCase(),
+    charge.captured === true ? 'TRUE' : 'FALSE',
+    convertedAmount,
+    convertedAmountRefunded,
+    convertedCurrency,
+    declineReason,
+    String(charge.description || '').trim(),
+    fee,
+    refundedDateUtc,
+    statementDescriptor,
+    String(charge.status || '').trim(),
+    sellerMessage,
+    taxesOnFee,
+    cardId,
+    customerInfo.id,
+    customerInfo.description,
+    customerInfo.email
+  ];
+}
+
+function getCustomerInfoFromCharge_(charge)
+{
+  var fallbackDescription = String((charge.billing_details && charge.billing_details.name) || '').trim();
+  var fallbackEmail = String((charge.billing_details && charge.billing_details.email) || '').trim();
+
+  if (!charge.customer)
+  {
+    return {
+      id: '',
+      description: fallbackDescription,
+      email: fallbackEmail
+    };
+  }
+
+  if (typeof charge.customer === 'object')
+  {
+    return {
+      id: String(charge.customer.id || '').trim(),
+      description: String(charge.customer.description || fallbackDescription || '').trim(),
+      email: String(charge.customer.email || fallbackEmail || '').trim()
+    };
+  }
+
+  return {
+    id: String(charge.customer || '').trim(),
+    description: fallbackDescription,
+    email: fallbackEmail
+  };
+}
+
+function getExpandedObject_(value)
+{
+  if (!value)
+  {
+    return null;
+  }
+
+  if (typeof value === 'object')
+  {
+    return value;
+  }
+
+  return null;
+}
+
+function getTaxesOnFee_(balanceTx)
+{
+  var feeDetails = Array.isArray(balanceTx.fee_details) ? balanceTx.fee_details : [];
+  var total = 0;
+
+  for (var i = 0; i < feeDetails.length; i++)
+  {
+    var item = feeDetails[i];
+
+    if (String(item.type || '') === 'tax')
+    {
+      total += Number(item.amount || 0);
+    }
+  }
+
+  return centsToAmount_(total, balanceTx.currency);
+}
+
+function getConvertedRefundedAmount_(charge, balanceTx)
+{
+  if (!balanceTx)
+  {
+    return '';
+  }
+
+  var amountRefunded = Number(charge.amount_refunded || 0);
+
+  if (!amountRefunded)
+  {
+    return '';
+  }
+
+  var exchangeRate = Number(balanceTx.exchange_rate || 0);
+
+  if (exchangeRate > 0)
+  {
+    var convertedMinor = Math.round(amountRefunded * exchangeRate);
+    return centsToAmount_(convertedMinor, balanceTx.currency);
+  }
+
+  if (String(balanceTx.currency || '') === String(charge.currency || ''))
+  {
+    return centsToAmount_(amountRefunded, balanceTx.currency);
+  }
+
+  return '';
+}
+
+function getRefundedDateUtc_(charge)
+{
+  if (!charge || !charge.refunded)
+  {
+    return '';
+  }
+
+  var refunds = (charge.refunds && Array.isArray(charge.refunds.data)) ? charge.refunds.data : [];
+
+  if (!refunds.length)
+  {
+    return '';
+  }
+
+  var latest = 0;
+
+  for (var i = 0; i < refunds.length; i++)
+  {
+    var created = Number(refunds[i].created || 0);
+
+    if (created > latest)
+    {
+      latest = created;
+    }
+  }
+
+  return latest ? formatUnixUtc_(latest) : '';
+}
+
+function getDeclineReason_(charge)
+{
+  if (charge.outcome && charge.outcome.reason)
+  {
+    return String(charge.outcome.reason || '').trim();
+  }
+
+  if (charge.failure_code)
+  {
+    return String(charge.failure_code || '').trim();
+  }
+
+  return '';
+}
+
+function getCardId_(charge)
+{
+  if (charge.payment_method)
+  {
+    return String(charge.payment_method);
+  }
+
+  if (charge.source && charge.source.id)
+  {
+    return String(charge.source.id);
+  }
+
+  return '';
+}
+
+function centsToAmount_(minor, currency)
+{
+  if (minor === null || minor === '' || typeof minor === 'undefined')
+  {
+    return '';
+  }
+
+  var amount = Number(minor);
+  var code = String(currency || '').toLowerCase();
+
+  if (isNaN(amount))
+  {
+    return '';
+  }
+
+  if (isZeroDecimalCurrency_(code))
+  {
+    return amount;
+  }
+
+  return amount / 100;
+}
+
+function isZeroDecimalCurrency_(currency)
+{
+  var zeroDecimal =
+  {
+    bif: true,
+    clp: true,
+    djf: true,
+    gnf: true,
+    jpy: true,
+    kmf: true,
+    krw: true,
+    mga: true,
+    pyg: true,
+    rwf: true,
+    ugx: true,
+    vnd: true,
+    vuv: true,
+    xaf: true,
+    xof: true,
+    xpf: true
+  };
+
+  return zeroDecimal[currency] === true;
+}
+
+function formatUnixUtc_(unixSec)
+{
+  var n = Number(unixSec || 0);
+
+  if (!n)
+  {
+    return '';
+  }
+
+  return Utilities.formatDate(new Date(n * 1000), 'UTC', 'yyyy-MM-dd HH:mm:ss');
+}
+
+function parseDdMmYyyyToUnixStartOfDay_(value)
+{
+  var s = String(value || '').trim();
+  var parts = s.split('/');
+
+  if (parts.length !== 3)
+  {
+    throw new Error('Formato data non valido: ' + s + ' (atteso dd/MM/yyyy)');
+  }
+
+  var dd = Number(parts[0]);
+  var mm = Number(parts[1]);
+  var yyyy = Number(parts[2]);
+
+  if (!dd || !mm || !yyyy)
+  {
+    throw new Error('Data non valida: ' + s);
+  }
+
+  var dt = new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+
+  return Math.floor(dt.getTime() / 1000);
+}
+
+function ensureStripeSheet(ss, sheetName, headers)
+{
+  var sheet = ss.getSheetByName(sheetName);
+
+  if (!sheet)
+  {
+    sheet = ss.insertSheet(sheetName);
+  }
+
+  if (sheet.getLastRow() === 0)
+  {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+  }
+  else
+  {
+    var currentHeaders = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    var rewriteHeaders = false;
+
+    for (var i = 0; i < headers.length; i++)
+    {
+      if (String(currentHeaders[i] || '') !== headers[i])
+      {
+        rewriteHeaders = true;
+        break;
+      }
+    }
+
+    if (rewriteHeaders)
+    {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.setFrozenRows(1);
+    }
+  }
+
+  return sheet;
+}
+
+function getExistingIds(sheet)
+{
+  var ids = {};
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow < 2)
+  {
+    return ids;
+  }
+
+  var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+
+  for (var i = 0; i < values.length; i++)
+  {
+    var id = String(values[i][0] || '').trim();
+
+    if (id)
+    {
+      ids[id] = true;
+    }
+  }
+
+  return ids;
+}
+
+// ===== PayPal helper functions (moved from IMDB_Ordini_Scripts) =====
+
+function resetPayPalLastSync_()
+{
+  PropertiesService.getScriptProperties().deleteProperty('PAYPAL_LAST_SYNC_UTC');
+  Logger.log('Property PAYPAL_LAST_SYNC_UTC azzerata');
+}
+
+function getPayPalAccessToken(config, clientId, secret)
+{
+  var basic = Utilities.base64Encode(clientId + ':' + secret);
+
+  var response = UrlFetchApp.fetch(config.oauthUrl,
+  {
+    method: 'post',
+    muteHttpExceptions: true,
+    payload: 'grant_type=client_credentials',
+    contentType: 'application/x-www-form-urlencoded',
+    headers:
+    {
+      Authorization: 'Basic ' + basic
+    }
+  });
+
+  var code = response.getResponseCode();
+  var text = response.getContentText();
+
+  if (code < 200 || code >= 300)
+  {
+    throw new Error('PayPal OAuth error HTTP ' + code + ': ' + text);
+  }
+
+  var json = JSON.parse(text);
+  var token = String(json.access_token || '').trim();
+
+  if (!token)
+  {
+    throw new Error('Access token PayPal mancante nella risposta OAuth');
+  }
+
+  return token;
+}
+
+function getPayPalSyncStartDate(config, props)
+{
+  var lastSyncIso = String(props.getProperty(config.lastSyncProperty) || '').trim();
+
+  if (lastSyncIso)
+  {
+    return new Date(lastSyncIso);
+  }
+
+  var startDateStr = String(props.getProperty(config.startDateProperty) || '').trim();
+
+  if (!startDateStr)
+  {
+    throw new Error('Manca la Script Property ' + config.startDateProperty + ' (formato dd/MM/yyyy)');
+  }
+
+  return parseDdMmYyyyToDate_(startDateStr);
+}
+
+function buildPayPalTransactionsUrl(config, startDate, endDate, page)
+{
+  var params = [];
+  params.push('start_date=' + encodeURIComponent(toPayPalIsoUtc_(startDate)));
+  params.push('end_date=' + encodeURIComponent(toPayPalIsoUtc_(endDate)));
+  params.push('fields=' + encodeURIComponent('transaction_info,payer_info'));
+  params.push('balance_affecting_records_only=Y');
+  params.push('transaction_status=S');
+  params.push('page_size=' + encodeURIComponent(String(config.pageSize)));
+  params.push('page=' + encodeURIComponent(String(page)));
+
+  return config.transactionsUrl + '?' + params.join('&');
+}
+
+function paypalGetJson(url, accessToken)
+{
+  var response = UrlFetchApp.fetch(url,
+  {
+    method: 'get',
+    muteHttpExceptions: true,
+    headers:
+    {
+      Authorization: 'Bearer ' + accessToken
+    }
+  });
+
+  var code = response.getResponseCode();
+  var text = response.getContentText();
+
+  if (code < 200 || code >= 300)
+  {
+    throw new Error('PayPal API error HTTP ' + code + ': ' + text);
+  }
+
+  return JSON.parse(text);
+}
+
+function buildPayPalRow(detail, accountEmail)
+{
+  var info = detail && detail.transaction_info ? detail.transaction_info : null;
+
+  if (!info)
+  {
+    return null;
+  }
+
+  var transactionId = String(info.transaction_id || '').trim();
+
+  if (!transactionId)
+  {
+    return null;
+  }
+
+  var iso = String(info.transaction_initiation_date || '').trim();
+
+  if (!iso)
+  {
+    return null;
+  }
+
+  var parsed = splitIsoForSheet_(iso);
+  var amount = getMoneyValue_(info.transaction_amount);
+  var fee = getMoneyValue_(info.fee_amount);
+  var net = '';
+
+  if (amount !== '' && fee !== '')
+  {
+    net = roundMoney_(Number(amount) + Number(fee));
+  }
+
+  var currency = getMoneyCurrency_(info.transaction_amount);
+  var payerInfo = detail.payer_info || {};
+  var fromEmail = String(payerInfo.email_address || '').trim();
+  var toEmail = String(accountEmail || '').trim();
+  var balanceImpact = 'Y';
+  var name = getPayPalName_(detail);
+  var typeValue = String(info.transaction_event_code || info.transaction_subject || '').trim();
+  var statusValue = mapPayPalStatus_(String(info.transaction_status || '').trim());
+
+  var uniqueKey = [
+    transactionId,
+    iso,
+    String(amount),
+    String(fee),
+    statusValue
+  ].join('|');
+
+  return [
+    uniqueKey,
+    transactionId,
+    parsed.date,
+    parsed.time,
+    parsed.timeZone,
+    name,
+    typeValue,
+    statusValue,
+    currency,
+    amount,
+    fee,
+    net,
+    fromEmail,
+    toEmail,
+    balanceImpact
+  ];
+}
+
+function getPayPalTransactionIso(detail)
+{
+  var info = detail && detail.transaction_info ? detail.transaction_info : null;
+  return info ? String(info.transaction_initiation_date || '').trim() : '';
+}
+
+function getPayPalName_(detail)
+{
+  var payerInfo = detail && detail.payer_info ? detail.payer_info : {};
+  var payerName = payerInfo.payer_name || {};
+
+  var alt = String(payerName.alternate_full_name || '').trim();
+
+  if (alt)
+  {
+    return alt;
+  }
+
+  var given = String(payerName.given_name || '').trim();
+  var surname = String(payerName.surname || '').trim();
+  var full = (given + ' ' + surname).replace(/\s+/g, ' ').trim();
+
+  if (full)
+  {
+    return full;
+  }
+
+  var email = String(payerInfo.email_address || '').trim();
+
+  if (email)
+  {
+    return email;
+  }
+
+  var info = detail && detail.transaction_info ? detail.transaction_info : {};
+  return String(info.transaction_subject || '').trim();
+}
+
+function mapPayPalStatus_(statusCode)
+{
+  if (statusCode === 'S')
+  {
+    return 'Success';
+  }
+
+  if (statusCode === 'P')
+  {
+    return 'Pending';
+  }
+
+  if (statusCode === 'V')
+  {
+    return 'Reversed';
+  }
+
+  if (statusCode === 'D')
+  {
+    return 'Denied';
+  }
+
+  return statusCode;
+}
+
+function getMoneyValue_(money)
+{
+  if (!money || typeof money !== 'object')
+  {
+    return '';
+  }
+
+  var value = String(money.value || '').trim();
+
+  if (value === '')
+  {
+    return '';
+  }
+
+  var n = Number(value);
+
+  if (isNaN(n))
+  {
+    return value;
+  }
+
+  return roundMoney_(n);
+}
+
+function getMoneyCurrency_(money)
+{
+  if (!money || typeof money !== 'object')
+  {
+    return '';
+  }
+
+  return String(money.currency_code || '').trim();
+}
+
+function roundMoney_(n)
+{
+  return Math.round(n * 100) / 100;
+}
+
+function splitIsoForSheet_(iso)
+{
+  var d = new Date(iso);
+
+  if (String(iso).slice(-1) === 'Z')
+  {
+    return {
+      date: Utilities.formatDate(d, 'UTC', 'yyyy-MM-dd'),
+      time: Utilities.formatDate(d, 'UTC', 'HH:mm:ss'),
+      timeZone: 'UTC'
+    };
+  }
+
+  return {
+    date: Utilities.formatDate(d, Session.getScriptTimeZone(), 'yyyy-MM-dd'),
+    time: Utilities.formatDate(d, Session.getScriptTimeZone(), 'HH:mm:ss'),
+    timeZone: Session.getScriptTimeZone()
+  };
+}
+
+function toPayPalIsoUtc_(date)
+{
+  return Utilities.formatDate(date, 'UTC', "yyyy-MM-dd'T'HH:mm:ss'Z'");
+}
+
+function addDays(date, days)
+{
+  return new Date(date.getTime() + (days * 24 * 60 * 60 * 1000));
+}
+
+function parseDdMmYyyyToDate_(value)
+{
+  var s = String(value || '').trim();
+  var parts = s.split('/');
+
+  if (parts.length !== 3)
+  {
+    throw new Error('Formato data non valido: ' + s + ' (atteso dd/MM/yyyy)');
+  }
+
+  var dd = Number(parts[0]);
+  var mm = Number(parts[1]);
+  var yyyy = Number(parts[2]);
+
+  if (!dd || !mm || !yyyy)
+  {
+    throw new Error('Data non valida: ' + s);
+  }
+
+  return new Date(yyyy, mm - 1, dd, 0, 0, 0, 0);
+}
+
+function ensurePayPalSheet(ss, sheetName, headers)
+{
+  var sheet = ss.getSheetByName(sheetName);
+
+  if (!sheet)
+  {
+    sheet = ss.insertSheet(sheetName);
+  }
+
+  if (sheet.getLastRow() === 0)
+  {
+    sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sheet.setFrozenRows(1);
+  }
+  else
+  {
+    var currentHeaders = sheet.getRange(1, 1, 1, headers.length).getValues()[0];
+    var rewriteHeaders = false;
+
+    for (var i = 0; i < headers.length; i++)
+    {
+      if (String(currentHeaders[i] || '') !== headers[i])
+      {
+        rewriteHeaders = true;
+        break;
+      }
+    }
+
+    if (rewriteHeaders)
+    {
+      sheet.getRange(1, 1, 1, headers.length).setValues([headers]);
+      sheet.setFrozenRows(1);
+    }
+  }
+
+  return sheet;
+}
+
+function getExistingUniqueKeys(sheet)
+{
+  var keys = {};
+  var lastRow = sheet.getLastRow();
+
+  if (lastRow < 2)
+  {
+    return keys;
+  }
+
+  var values = sheet.getRange(2, 1, lastRow - 1, 1).getValues();
+
+  for (var i = 0; i < values.length; i++)
+  {
+    var key = String(values[i][0] || '').trim();
+
+    if (key)
+    {
+      keys[key] = true;
+    }
+  }
+
+  return keys;
+}
+
+// ===== End of functions moved from IMDB_Ordini_Scripts =====
+
 function sendEmailViaSMTP(htmlContent, recipientEmail, subject, senderName, ccEmail = '', bccEmail = '', fileBlob = null, provider = 'Aruba') {
   
   var smtpServer;
